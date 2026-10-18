@@ -1,0 +1,79 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "systems": {
+          "$sid": {
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 60"
+            }
+          }
+        }
+      }
+    },
+    "systemsIndex": {
+      "$systemId": {
+        ".read": "auth != null && root.child('systemsIndex').child($systemId).child('members').child(auth.uid).exists()",
+        "name": {
+          ".write": "auth != null && (!root.child('systemsIndex').child($systemId).child('members').exists() || root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'owner')",
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "members": {
+          ".write": "auth != null && (!root.child('systemsIndex').child($systemId).child('members').exists() || root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'owner')",
+          "$memberUid": {
+            ".validate": "newData.val() === 'owner' || newData.val() === 'device'"
+          }
+        }
+      }
+    },
+    "systems": {
+      "$systemId": {
+        ".read": "auth != null && root.child('systemsIndex').child($systemId).child('members').child(auth.uid).exists()",
+        "readings": {
+          ".write": "auth != null && root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'device'",
+          "history": {
+            ".indexOn": [
+              "timestamp"
+            ]
+          }
+        },
+        "circuits": {
+          ".write": "auth != null && root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'device'",
+          "history": {
+            ".indexOn": [
+              "timestamp"
+            ]
+          }
+        },
+        "system": {
+          ".write": "auth != null && root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'device'"
+        },
+        "alerts": {
+          ".write": "auth != null && (root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'owner' || root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'device')"
+        },
+        "settings": {
+          ".write": "auth != null && root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'owner'"
+        },
+        "control": {
+          ".write": "auth != null && (root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'owner' || root.child('systemsIndex').child($systemId).child('members').child(auth.uid).val() === 'device')",
+          "$key": {
+            ".validate": "newData.isBoolean()"
+          }
+        },
+        "energy": {
+          ".write": false
+        },
+        "alertState": {
+          ".write": false
+        },
+        "energyState": {
+          ".write": false
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "solariot-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Backend for SolarIoT dashboard - receives readings from ESP32 over WiFi and streams them to the React frontend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "solar-iot-functions",
+  "private": true,
+  "description": "Server-side alerts, push notifications, energy totals and cleanup for the Solar IoT system",
+  "engines": { "node": "22" },
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0"
+  }
+}
