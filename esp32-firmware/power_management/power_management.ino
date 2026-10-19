@@ -70,9 +70,20 @@ float readTemperatureC() {
   return (v - 0.5) * 100.0;         // TMP36: 10 mV per degree C, 500 mV offset
 }
 
-float R1 = 30000.0, R2 = 7500.0;    // voltage sensors' own divider
-float R3 = 10000.0, R4 = 10000.0;   // your added divider on voltage sensors
-float R5 = 10000.0, R6 = 10000.0;   // your added divider on current sensors
+// ---- HARDWARE ASSUMPTIONS: these MUST match the real wiring ---------------------------
+// Open the serial monitor and type  d  (diagnostics). With NO current flowing, an ACS712
+// powered from 5 V outputs 2.50 V, so the ESP32 pin must read about 1.25 V when the 1:2
+// divider (R5/R6) is fitted, or about 2.50 V when it is NOT fitted.
+// Likewise the voltage module output is Vin/5, and the pin sees half of that when the 1:2
+// divider (R3/R4) is fitted. Set the flags below to what is really on the board.
+const bool VOLT_EXTRA_DIVIDER_FITTED    = true;   // R3/R4 between voltage-module OUT and ESP32 pin
+const bool CURRENT_EXTRA_DIVIDER_FITTED = true;   // R5/R6 between ACS712 OUT and ESP32 pin
+
+float R1 = 30000.0, R2 = 7500.0;    // voltage sensors' own divider (25 V module)
+float R3 = 10000.0, R4 = 10000.0;   // added divider on voltage sensors
+float R5 = 10000.0, R6 = 10000.0;   // added divider on current sensors
+float voltDivRatio() { return VOLT_EXTRA_DIVIDER_FITTED ? (R4 / (R3 + R4)) : 1.0; }
+float currDivRatio() { return CURRENT_EXTRA_DIVIDER_FITTED ? (R6 / (R5 + R6)) : 1.0; }
 float sensitivity = 0.100;          // V/A -- match your ACS712 model
 float acsZero_solar = 2.5, acsZero_batt = 2.5;  // calibrate each individually
 
@@ -84,7 +95,7 @@ const int numPoints = 11;
 float voltageTable[numPoints] = {10.50, 11.31, 11.58, 11.75, 11.90, 12.06, 12.20, 12.32, 12.42, 12.50, 12.70};
 float percentTable[numPoints] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 
-float batteryCapacityAh = 100.0;    // SET to your battery's rated Ah
+float batteryCapacityAh = 20.0;     // battery rating: 12 V 20 Ah
 float chargeRemainingAh = 0.0;
 unsigned long lastCoulombMillis = 0;
 float restCurrentThreshold = 0.15;
@@ -112,9 +123,20 @@ bool faultLatched = false;
 unsigned long faultConditionStart = 0;
 unsigned long faultConfirmDelay = 1000;
 bool faultConditionActive = false;
-float maxLoadCurrent = 26.0;        // SET to your inverter/wiring rating
-float maxBatteryVoltage = 24.5;
+float maxLoadCurrent = 15.0;        // A. Must be BELOW the ACS712-20A range: that sensor cannot read above 20 A, so a 20 A limit can never trigger. Use your inverter/fuse rating (max ~18).
+float maxBatteryVoltage = 15.0;       // V. 12 V lead-acid: charge controllers hold 14.4-14.8 V; trip above 15 V
 float minBatteryVoltage = 10.5;
+
+// ---- Which limits may trip the safety relay ----
+// A battery below this voltage is treated as "no battery / voltage sensor not connected", NOT as a
+// fault. (An unplugged or floating ADC pin reads a small non-zero value, which used to look like a
+// flat battery and tripped the relay.)
+const float BATTERY_PRESENT_MIN_V = 6.0;
+// Battery over/under-voltage trips stay OFF until you have calibrated the voltage reading with a
+// multimeter (see the 'd' command). A wrong reading would otherwise trip the relay for no reason.
+// Overload (current) protection is always active. Set this to true once voltages match the multimeter.
+const bool VOLTAGE_TRIPS_ENABLED = false;
+String faultReason = "";
 
 // ================= Load control relay (independent, remote controlled) =================
 const int loadCh1Pin = 27;          // bulb
@@ -126,25 +148,53 @@ bool ch2State = false;
 // ============================================================
 // Sensor reading
 // ============================================================
-float readVoltage(int pin) {
-  int adc = analogRead(pin);
-  float vAtPin = (adc * refVoltage) / adcResolution;
-  float vAtSensorOut = vAtPin / (R4 / (R3 + R4));
-  float v = vAtSensorOut / (R2 / (R1 + R2));
-  return (v < 0.09) ? 0.0 : v;
+// 1 = factory-calibrated millivolt reading (Arduino-ESP32 core 2.x or newer), 0 = raw count x 3.3/4095
+#define USE_CALIBRATED_ADC 1
+const int ADC_SAMPLES = 16;
+float readPinVolts(int pin) {
+  float sum = 0;
+  for (int k = 0; k < ADC_SAMPLES; k++) {
+#if USE_CALIBRATED_ADC
+    sum += analogReadMilliVolts(pin) / 1000.0;
+#else
+    sum += (analogRead(pin) * refVoltage) / adcResolution;
+#endif
+  }
+  return sum / ADC_SAMPLES;
 }
 
-float readCurrent(int pin, float acsZero) {
-  int adc = analogRead(pin);
-  float iAtPin = (adc * refVoltage) / adcResolution;
-  float acsOut = iAtPin / (R6 / (R5 + R6));
+const float ADC_NOISE_FLOOR_V = 0.15;   // below this pin voltage the ESP32 ADC is unreliable (non-linear near 0 V)
+float battVoltCal = 1.0, solarVoltCal = 1.0;        // final trim: multimeter volts / volts shown by the sketch
+float battTotalRatio = 0.0, solarTotalRatio = 0.0;  // MEASURED pin volts / real volts. 0 = calculate from the resistors above
+
+float readVoltage(int pin, float cal, float measuredRatio) {
+  float vAtPin = readPinVolts(pin);
+  if (vAtPin < ADC_NOISE_FLOOR_V) return 0.0;   // nothing connected (or too low to measure)
+  float v;
+  if (measuredRatio > 0.0) {
+    v = vAtPin / measuredRatio;                  // measured with a multimeter: trust it
+  } else {
+    float vAtSensorOut = vAtPin / voltDivRatio();
+    v = vAtSensorOut / (R2 / (R1 + R2));
+  }
+  return v * cal;
+}
+
+bool solarCurrentOk = true, battCurrentOk = true;
+
+float readCurrent(int pin, float acsZero, bool &sensorOk) {
+  float iAtPin = readPinVolts(pin);
+  float acsOut = iAtPin / currDivRatio();
+  // An ACS712 on a 5 V supply always outputs 0.5 - 4.5 V. Anything outside that means the sensor is
+  // unplugged / floating, or the divider flag is wrong. Report 0 A instead of a fake huge current.
+  sensorOk = (acsOut >= 0.3 && acsOut <= 4.7);
+  if (!sensorOk) return 0.0;
   float i = (acsOut - acsZero) / sensitivity;
   return (abs(i) < 0.05) ? 0.0 : i;
 }
 
 float readMainsSensorVoltage() {
-  int adc = analogRead(mainsSensePin);
-  float vAtPin = (adc * refVoltage) / adcResolution;
+  float vAtPin = readPinVolts(mainsSensePin);
   return vAtPin / (R2 / (R1 + R2));
 }
 
@@ -196,18 +246,29 @@ void resetSafety() {
 
 void checkFaults(float loadCurrent, float batteryVoltage) {
   if (faultLatched) return;
-  bool faultNow = (abs(loadCurrent) > maxLoadCurrent) ||
-                  (batteryVoltage > maxBatteryVoltage) ||
-                  (batteryVoltage < minBatteryVoltage && batteryVoltage > 0.5);
+
+  String reason = "";
+  if (abs(loadCurrent) > maxLoadCurrent) {
+    reason = String("Load current ") + String(loadCurrent, 1) + " A is beyond the " + String(maxLoadCurrent, 0) + " A limit";
+  } else if (VOLTAGE_TRIPS_ENABLED && batteryVoltage >= BATTERY_PRESENT_MIN_V) {
+    if (batteryVoltage > maxBatteryVoltage) {
+      reason = String("Battery voltage ") + String(batteryVoltage, 2) + " V is above the " + String(maxBatteryVoltage, 1) + " V limit";
+    } else if (batteryVoltage < minBatteryVoltage) {
+      reason = String("Battery voltage ") + String(batteryVoltage, 2) + " V is below the " + String(minBatteryVoltage, 1) + " V limit";
+    }
+  }
+
   unsigned long now = millis();
-  if (faultNow) {
+  if (reason.length() > 0) {
     if (!faultConditionActive) {
       faultConditionActive = true;
       faultConditionStart = now;
+      faultReason = reason;
     } else if (now - faultConditionStart >= faultConfirmDelay) {
-      Serial.println("!! FAULT - safety relay tripped !!");
+      Serial.print("!! FAULT - safety relay tripped: ");
+      Serial.println(faultReason);
       tripSafety();
-      raiseAlert("error", "Safety cutoff tripped", "Load current, or battery voltage, went out of range.");
+      raiseAlert("error", "Safety cutoff tripped", faultReason.c_str());
     }
   } else {
     faultConditionActive = false;
@@ -516,8 +577,59 @@ void printHelp() {
   Serial.println("1 = toggle channel 1 (bulb)");
   Serial.println("2 = toggle channel 2 (appliance)");
   Serial.println("r = reset safety trip");
+  Serial.println("d = ADC diagnostics (raw pin / sensor-output volts for every channel)");
+  Serial.println("z = calibrate current-sensor zero (ONLY with no current flowing)");
   Serial.println("h = show this help");
   Serial.println("(Grid/inverter switching is automatic only - no manual command)");
+}
+
+void printDiag() {
+  Serial.println("== ADC diagnostics ==");
+  Serial.print("Extra dividers assumed: voltage=");
+  Serial.print(VOLT_EXTRA_DIVIDER_FITTED ? "FITTED" : "NOT fitted");
+  Serial.print(", current=");
+  Serial.println(CURRENT_EXTRA_DIVIDER_FITTED ? "FITTED" : "NOT fitted");
+  struct VCh { const char* name; int pin; };
+  VCh vch[] = { {"Solar voltage  (GPIO36)", solarVoltPin}, {"Battery voltage (GPIO34)", battVoltPin} };
+  for (auto &c : vch) {
+    float pinV = readPinVolts(c.pin);
+    float outV = pinV / voltDivRatio();
+    Serial.print(c.name); Serial.print(": pin="); Serial.print(pinV, 3);
+    Serial.print(" V, module OUT="); Serial.print(outV, 3);
+    Serial.print(" V -> "); Serial.print(outV / (R2 / (R1 + R2)), 2); Serial.println(" V");
+  }
+  struct ICh { const char* name; int pin; float zero; };
+  ICh ich[] = { {"Solar current  (GPIO35)", solarCurrentPin, acsZero_solar}, {"Battery current (GPIO33)", battCurrentPin, acsZero_batt} };
+  for (auto &c : ich) {
+    float pinV = readPinVolts(c.pin);
+    float outV = pinV / currDivRatio();
+    Serial.print(c.name); Serial.print(": pin="); Serial.print(pinV, 3);
+    Serial.print(" V, ACS712 OUT="); Serial.print(outV, 3);
+    Serial.print(" V -> "); Serial.print((outV - c.zero) / sensitivity, 2); Serial.println(" A");
+  }
+  Serial.print("Battery detected: ");
+  Serial.println(readVoltage(battVoltPin, battVoltCal, battTotalRatio) >= BATTERY_PRESENT_MIN_V ? "yes" : "NO (reads below 6 V: battery or voltage sensor not connected)");
+  Serial.println("Current sensors: an ACS712 output must be 0.3 - 4.7 V; outside that it is treated as unplugged and reads 0 A.");
+  Serial.println("CALIBRATE: measure the battery with a multimeter NOW.  ratio = 'Battery voltage pin' volts / multimeter volts");
+  Serial.println("  (e.g. 1.94 / 12.6 = 0.154). Put it in battTotalRatio (solarTotalRatio for the panel), re-upload, type d again,");
+  Serial.println("  check the sketch matches the multimeter within 0.1 V, then set VOLTAGE_TRIPS_ENABLED = true.");
+  Serial.println("Expected at ZERO current: ACS712 OUT = 2.50 V (pin 1.25 V if the 1:2 divider is fitted, 2.50 V if not).");
+  Serial.println("Compare the pin volts above with a multimeter on the same pin, and the module OUT with the battery/panel voltage / 5.");
+}
+
+void calibrateZero() {
+  float zs = readPinVolts(solarCurrentPin) / currDivRatio();
+  float zb = readPinVolts(battCurrentPin) / currDivRatio();
+  Serial.println("== Zero-current calibration (no current must be flowing) ==");
+  Serial.print("acsZero_solar = "); Serial.println(zs, 3);
+  Serial.print("acsZero_batt  = "); Serial.println(zb, 3);
+  if (fabs(zs - 2.5) > 0.3 || fabs(zb - 2.5) > 0.3) {
+    Serial.println("WARNING: more than 0.3 V from 2.50 V - check the divider flags, the 5 V supply of the sensor and the wiring before using these values.");
+    Serial.println("Values NOT applied.");
+    return;
+  }
+  acsZero_solar = zs; acsZero_batt = zb;
+  Serial.println("Applied until reset. Copy these two numbers into acsZero_solar / acsZero_batt in the sketch to keep them.");
 }
 
 void handleSerialCommands() {
@@ -531,6 +643,8 @@ void handleSerialCommands() {
       if (faultLatched) resetSafety();
       else Serial.println(">> No fault to reset");
       break;
+    case 'd': case 'D': printDiag(); break;
+    case 'z': case 'Z': calibrateZero(); break;
     case 'h': case 'H':
       printHelp();
       break;
@@ -544,6 +658,7 @@ void handleSerialCommands() {
 void setup() {
   Serial.begin(115200);
   analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);   // full 0-~3.1 V input range
 
   pinMode(transferRelayPin, OUTPUT);
   pinMode(safetyRelayPin, OUTPUT);
@@ -559,7 +674,7 @@ void setup() {
   stableMainsState = mainsPresent;
   setPowerSource(!mainsPresent);
 
-  float startVoltage = readVoltage(battVoltPin);
+  float startVoltage = readVoltage(battVoltPin, battVoltCal, battTotalRatio);
   chargeRemainingAh = batteryCapacityAh * (batteryPercentage(startVoltage) / 100.0);
   lastCoulombMillis = millis();
 
@@ -622,11 +737,11 @@ void setup() {
 void loop() {
   handleSerialCommands();
 
-  float solarVoltage = readVoltage(solarVoltPin);
-  float solarCurrent = readCurrent(solarCurrentPin, acsZero_solar);
+  float solarVoltage = readVoltage(solarVoltPin, solarVoltCal, solarTotalRatio);
+  float solarCurrent = readCurrent(solarCurrentPin, acsZero_solar, solarCurrentOk);
 
-  float batteryVoltage = readVoltage(battVoltPin);
-  float batteryCurrent = readCurrent(battCurrentPin, acsZero_batt);  // draw toward inverter
+  float batteryVoltage = readVoltage(battVoltPin, battVoltCal, battTotalRatio);
+  float batteryCurrent = readCurrent(battCurrentPin, acsZero_batt, battCurrentOk);  // draw toward inverter
   float batteryPower = batteryVoltage * batteryCurrent;
 
   float netCurrent = solarCurrent - batteryCurrent;   // charging in minus draw out
@@ -658,6 +773,9 @@ void loop() {
     lastUpload = millis();
   }
 
+  if (!solarCurrentOk || !battCurrentOk) Serial.print("[CURRENT SENSOR NOT DETECTED] ");
+  if (batteryVoltage < BATTERY_PRESENT_MIN_V) Serial.print("[NO BATTERY DETECTED] ");
+  if (!VOLTAGE_TRIPS_ENABLED) Serial.print("[voltage trips OFF] ");
   Serial.print("Solar: "); Serial.print(solarVoltage * solarCurrent, 2); Serial.print("W  ");
   Serial.print("Batt: "); Serial.print(batteryVoltage, 2); Serial.print("V ");
   Serial.print(batteryCurrent, 2); Serial.print("A  ");
