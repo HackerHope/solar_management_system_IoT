@@ -19,7 +19,7 @@ function Dashboard() {
 
   return (
     <>
-      <TopBar temperature={latest?.temperature ?? null} />
+      <TopBar />
 
       {loading && <LoadingState label="Connecting to your SolarIoT backend..." />}
       {!loading && error && <ErrorState message={error} />}
@@ -45,12 +45,6 @@ function Dashboard() {
           title="Load Current"
           value={latest ? `${latest.current.toFixed(1)} A` : "--"}
           status={latest ? "Normal" : "No data"}
-        />
-        <StatCard
-          icon="🌡️"
-          title="Temperature"
-          value={latest?.temperature != null ? `${latest.temperature.toFixed(0)}°C` : "N/A"}
-          status={latest ? "Safe" : "No data"}
         />
       </section>
 

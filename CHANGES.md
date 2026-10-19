@@ -4,7 +4,7 @@
 - `voltage`/`current` are the **battery** measurements (power-management firmware). Cards and rules are now named "Battery Voltage", "Load Current"; rule "Low Solar Voltage" is now "Low Battery Voltage" with a user setting (default 10.5 V).
 - New **Solar Power** card (from `powerStatus`). Solar Panel on the Solar System screen now shows solar V/A.
 - Status words (Low/OK, Idle/In use, Normal/High) are now computed instead of fixed text.
-- Temperature is **optional**: firmware omits it when no sensor is fitted and the app shows "N/A / No sensor" and skips the alert.
+- Temperature support has been **removed** everywhere (app, web, functions, firmware, simulator) because no temperature sensor is fitted. Old `temperature` / `tempLimitC` values in the database are ignored.
 
 ## 2. Security
 - New per-system rules (`database.rules.json`); old rules kept as `database.rules.legacy-open.json`.
@@ -42,3 +42,11 @@
 ## Not verified (no Flutter/Arduino/Firebase tools in my environment)
 - Dart code was not compiled and Dart tests not run; firmware was not compiled; rules and functions were not deployed. Node tests were run and pass.
 - First steps for you: `flutter pub get`, `flutter analyze`, `flutter test`; create `secrets.h`; compile the sketch; then follow docs/security.md.
+
+## 7. AI Energy Advisor (Gemini)
+- `functions/insights.js` + `dailyInsights` in `functions/index.js`: every day at 06:00 (Africa/Lusaka) an anonymous 24-hour summary is sent to the Gemini API and the answer is written to `systems/<id>/insights/latest`. If Gemini is unavailable a rule-based summary is written instead (`source: "rules"`).
+- `functions/gemini_service.js` + `functions/gemini_service_setup.js`: same format as the Steadfast Gemini service. Up to 6 API keys (secret `GEMINI_API_KEYS`, comma separated) x 5 models; on 429, 404 or a rejected key the next config is tried automatically.
+- The advisor only writes text. It cannot switch relays, change settings or reset the safety cut-off.
+- If the readings look wrong (for example about 20 V or 25 A on a 12 V battery) the advisor says so and only suggests checking/calibrating the sensors.
+- App: new "Energy advisor" section on the dashboard (`lib/widgets/insights_card.dart`), chip shows "AI · advisory only" or "Summary · no AI".
+- Tools: `tools/check_gemini.js` (which keys/models work, and which one answered?), `tools/try_insights.js` (run the advisor locally on made-up days). Setup and tests: `docs/ai-insights.md`.

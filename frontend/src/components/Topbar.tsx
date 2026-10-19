@@ -1,6 +1,6 @@
 import { Search, Bell } from "lucide-react";
 
-function TopBar({ temperature }: { temperature?: number | null }) {
+function TopBar() {
   const today = new Date().toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
@@ -20,7 +20,6 @@ function TopBar({ temperature }: { temperature?: number | null }) {
 
         <div className="date-box">
           <p>{today}</p>
-          <strong>{temperature != null ? `${temperature.toFixed(0)}°C` : "--°C"}</strong>
         </div>
       </div>
     </header>

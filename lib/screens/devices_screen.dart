@@ -1,4 +1,3 @@
-
 import "dart:async";
 
 import "package:flutter/material.dart";
@@ -8,13 +7,13 @@ import "../services/mqtt_service.dart";
 import "../services/solar_data_service.dart";
 import "../theme.dart";
 import "../widgets/power_status_panel.dart";
+import "../widgets/periodic_rebuild.dart";
 import "../widgets/status_states.dart";
 
 const _icons = {
   "ESP32 Controller": Icons.router_rounded,
   "Battery Voltage Sensor": Icons.battery_charging_full_rounded,
   "Battery Current Sensor": Icons.electric_bolt_rounded,
-  "Temperature Sensor": Icons.thermostat_rounded,
   "Battery Monitor": Icons.battery_full_rounded,
 };
 
@@ -28,6 +27,7 @@ class DevicesScreen extends StatefulWidget {
 class _DevicesScreenState extends State<DevicesScreen> {
   final _dataService = SolarDataService();
   final _mqttService = MqttService();
+  List<String> _channelNames = AppSettings.defaults.channelNames;
 
   StreamSubscription? _settingsSubscription;
 
@@ -36,8 +36,10 @@ class _DevicesScreenState extends State<DevicesScreen> {
     super.initState();
 
     _settingsSubscription = _dataService.settings().listen((settings) {
-      if (settings.mqttBrokerHost.isNotEmpty &&
-          !_mqttService.isConnected) {
+      if (mounted) {
+        setState(() => _channelNames = settings.channelNames);
+      }
+      if (settings.mqttBrokerHost.isNotEmpty && !_mqttService.isConnected) {
         _mqttService.connectFromSettings(settings);
       }
     });
@@ -77,11 +79,6 @@ class _DevicesScreenState extends State<DevicesScreen> {
       case "Battery Current Sensor":
         return "${latest.current.toStringAsFixed(1)} A";
 
-      case "Temperature Sensor":
-        return latest.hasTemperature
-            ? "${latest.temperature.toStringAsFixed(0)}°C"
-            : "No sensor";
-
       case "Battery Monitor":
         return "${latest.batteryPercent.toStringAsFixed(0)}%";
 
@@ -96,8 +93,6 @@ class _DevicesScreenState extends State<DevicesScreen> {
         return "Battery voltage";
       case "Battery Current Sensor":
         return "Battery current";
-      case "Temperature Sensor":
-        return "System temperature";
       case "Battery Monitor":
         return "Estimated charge";
       case "ESP32 Controller":
@@ -142,17 +137,14 @@ class _DevicesScreenState extends State<DevicesScreen> {
                   return const Panel(
                     child: Padding(
                       padding: EdgeInsets.symmetric(vertical: 18),
-                      child: EmptyState(
-                        message: "No devices reporting yet.",
-                      ),
+                      child: EmptyState(message: "No devices reporting yet."),
                     ),
                   );
                 }
 
                 final onlineCount = devices
                     .where(
-                      (device) =>
-                          device.status == DeviceOnlineStatus.online,
+                      (device) => device.status == DeviceOnlineStatus.online,
                     )
                     .length;
 
@@ -178,14 +170,15 @@ class _DevicesScreenState extends State<DevicesScreen> {
 
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final columns =
-                            constraints.maxWidth >= 850 ? 3 :
-                            constraints.maxWidth >= 540 ? 2 : 1;
+                        final columns = constraints.maxWidth >= 850
+                            ? 3
+                            : constraints.maxWidth >= 540
+                            ? 2
+                            : 1;
 
                         final cardWidth =
-                            (constraints.maxWidth -
-                                    (columns - 1) * 12) /
-                                columns;
+                            (constraints.maxWidth - (columns - 1) * 12) /
+                            columns;
 
                         return Wrap(
                           spacing: 12,
@@ -195,15 +188,13 @@ class _DevicesScreenState extends State<DevicesScreen> {
                               width: cardWidth,
                               child: _DeviceCard(
                                 name: device.name,
-                                value: _valueFor(
-                                  device.name,
-                                  latestSnap.data,
-                                ),
+                                value: _valueFor(device.name, latestSnap.data),
                                 description: _unitFor(device.name),
-                                icon: _icons[device.name] ??
+                                icon:
+                                    _icons[device.name] ??
                                     Icons.settings_input_component_rounded,
-                                online: device.status ==
-                                    DeviceOnlineStatus.online,
+                                online:
+                                    device.status == DeviceOnlineStatus.online,
                               ),
                             );
                           }).toList(),
@@ -230,10 +221,13 @@ class _DevicesScreenState extends State<DevicesScreen> {
         StreamBuilder<PowerStatus?>(
           stream: dataService.powerStatus(),
           builder: (context, snap) {
-            return PowerStatusPanel(
-              status: snap.data,
-              onToggleChannel: _toggleChannel,
-              onResetSafety: _resetSafety,
+            return PeriodicRebuild(
+              builder: (_) => PowerStatusPanel(
+                status: snap.data,
+                channelNames: _channelNames,
+                onToggleChannel: _toggleChannel,
+                onResetSafety: _resetSafety,
+              ),
             );
           },
         ),
@@ -262,10 +256,7 @@ class _DevicesHeader extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.panel,
-            AppColors.accentIndigo.withOpacity(0.12),
-          ],
+          colors: [AppColors.panel, AppColors.accentIndigo.withOpacity(0.12)],
         ),
       ),
       child: Row(
@@ -348,11 +339,7 @@ class _SectionHeading extends StatelessWidget {
             color: AppColors.accentIndigo.withOpacity(0.13),
             borderRadius: BorderRadius.circular(13),
           ),
-          child: Icon(
-            icon,
-            color: AppColors.accentIndigoHover,
-            size: 22,
-          ),
+          child: Icon(icon, color: AppColors.accentIndigoHover, size: 22),
         ),
         const SizedBox(width: 13),
         Expanded(
@@ -389,27 +376,18 @@ class _SummaryChip extends StatelessWidget {
   final String label;
   final Color? color;
 
-  const _SummaryChip({
-    required this.icon,
-    required this.label,
-    this.color,
-  });
+  const _SummaryChip({required this.icon, required this.label, this.color});
 
   @override
   Widget build(BuildContext context) {
     final chipColor = color ?? AppColors.accentIndigoHover;
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 11,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       decoration: BoxDecoration(
         color: chipColor.withOpacity(0.09),
         borderRadius: BorderRadius.circular(11),
-        border: Border.all(
-          color: chipColor.withOpacity(0.20),
-        ),
+        border: Border.all(color: chipColor.withOpacity(0.20)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -447,8 +425,7 @@ class _DeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor =
-        online ? AppColors.online : AppColors.offline;
+    final statusColor = online ? AppColors.online : AppColors.offline;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -470,18 +447,11 @@ class _DeviceCard extends StatelessWidget {
                   color: statusColor.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(
-                  icon,
-                  color: statusColor,
-                  size: 24,
-                ),
+                child: Icon(icon, color: statusColor, size: 24),
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
                 decoration: BoxDecoration(
                   color: statusColor.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(20),
@@ -527,10 +497,7 @@ class _DeviceCard extends StatelessWidget {
 
           Text(
             description,
-            style: const TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 11,
-            ),
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
           ),
 
           const SizedBox(height: 16),
@@ -548,10 +515,7 @@ class _DeviceCard extends StatelessWidget {
 
           const Text(
             "Latest reported value",
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10,
-            ),
+            style: TextStyle(color: AppColors.textMuted, fontSize: 10),
           ),
         ],
       ),
@@ -569,9 +533,7 @@ class _MonitoringInfoCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.accentIndigo.withOpacity(0.07),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.accentIndigo.withOpacity(0.22),
-        ),
+        border: Border.all(color: AppColors.accentIndigo.withOpacity(0.22)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -596,17 +558,14 @@ class _MonitoringInfoCard extends StatelessWidget {
               children: [
                 Text(
                   "Per-appliance monitoring",
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                 ),
                 SizedBox(height: 8),
                 Text(
                   "Tracking lights, fans, TVs, and fridges separately "
                   "requires a current sensor on each circuit. "
                   "Your system currently measures total voltage, "
-                  "current, temperature, and battery level.",
+                  "current, and battery level.",
                   style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,

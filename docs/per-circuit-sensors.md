@@ -1,6 +1,6 @@
 # Per-Circuit Power Monitoring (Lights / Fan / TV / Fridge)
 
-Your main system (voltage, current, temperature, battery) measures the
+Your main system (voltage, current, battery) measures the
 **total** system. To break usage down per appliance, each circuit needs its
 own current sensor. Here's the practical way to do it.
 
@@ -44,8 +44,8 @@ smoothing capacitor. You'll need one of these small circuits per sensor.
 
 ## 3. Why you need an external ADC (ADS1115)
 
-Your ESP32 is already using 3 of its usable ADC pins (voltage, current,
-temperature) for the main sensors. There's a real constraint here: **when
+Your ESP32 is already using 4 of its usable ADC pins (solar and battery voltage and
+current) for the main sensors. There's a real constraint here: **when
 WiFi is active, only the ADC1 pins (GPIO32-39, 8 channels total) work** -
 ADC2 pins conflict with the WiFi radio and become unusable. That leaves you
 5 free ADC1 channels, not comfortably enough headroom for 4 more sensors

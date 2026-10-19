@@ -123,7 +123,7 @@ bool faultLatched = false;
 unsigned long faultConditionStart = 0;
 unsigned long faultConfirmDelay = 1000;
 bool faultConditionActive = false;
-float maxLoadCurrent = 15.0;        // A. Must be BELOW the ACS712-20A range: that sensor cannot read above 20 A, so a 20 A limit can never trigger. Use your inverter/fuse rating (max ~18).
+float maxLoadCurrent = 18.0;        // A. Must be BELOW the ACS712-20A range: that sensor cannot read above 20 A, so a 20 A limit can never trigger. Use your inverter/fuse rating (max ~18).
 float maxBatteryVoltage = 15.0;       // V. 12 V lead-acid: charge controllers hold 14.4-14.8 V; trip above 15 V
 float minBatteryVoltage = 10.5;
 
@@ -439,7 +439,14 @@ unsigned long long nowEpochMs() {
 
 void firebaseUpload(float battV, float battI, float battP, float battPercent,
                      float solarV, float solarI) {
-  if (!firebaseReady || !Firebase.ready()) return;
+  if (!firebaseReady) {
+    Serial.println("[FIREBASE] SDK is not initialized; upload skipped");
+    return;
+  }
+  if (!Firebase.ready()) {
+    Serial.println("[FIREBASE] Not ready; check WiFi, device credentials, and token status");
+    return;
+  }
 
   // Matches Reading.fromMap: voltage, current, temperature, batteryPercent, power, timestamp
   FirebaseJson reading;
@@ -451,16 +458,22 @@ void firebaseUpload(float battV, float battI, float battP, float battPercent,
   reading.set("power", battP);
   reading.set("timestamp", (double)nowEpochMs());
 
-  Firebase.RTDB.setJSON(&fbdo, (String("/systems/") + SYSTEM_ID + "/readings/latest").c_str(), &reading);
-  Firebase.RTDB.pushJSON(&fbdo, (String("/systems/") + SYSTEM_ID + "/readings/history").c_str(), &reading);
-
-  // Heartbeat so the app can show the device as online/offline
-  Firebase.RTDB.setDouble(&fbdo, (String("/systems/") + SYSTEM_ID + "/system/lastSeen").c_str(), (double)nowEpochMs());
+  bool readingOk = Firebase.RTDB.setJSON(&fbdo, (String("/systems/") + SYSTEM_ID + "/readings/latest").c_str(), &reading);
+  if (!readingOk) {
+    Serial.print("[FIREBASE] readings/latest write failed: ");
+    Serial.println(fbdo.errorReason());
+  }
+  bool historyOk = Firebase.RTDB.pushJSON(&fbdo, (String("/systems/") + SYSTEM_ID + "/readings/history").c_str(), &reading);
+  if (!historyOk) {
+    Serial.print("[FIREBASE] readings/history write failed: ");
+    Serial.println(fbdo.errorReason());
+  }
 
   // Solar-side numbers + power-management status. Doesn't conflict with
   // anything the app currently reads - the app's PowerStatus stream reads
   // this same path.
   FirebaseJson status;
+  status.set("timestamp", (double)nowEpochMs());
   status.set("solarVoltage", solarV);
   status.set("solarCurrent", solarI);
   status.set("source", usingInverter ? "inverter" : "grid");
@@ -470,7 +483,21 @@ void firebaseUpload(float battV, float battI, float battP, float battPercent,
   status.set("channel2", ch2State);
   status.set("autoMode", autoLoadControl);
   status.set("autoShed", autoShed);
-  Firebase.RTDB.setJSON(&fbdo, (String("/systems/") + SYSTEM_ID + "/system/powerStatus").c_str(), &status);
+  bool statusOk = Firebase.RTDB.setJSON(&fbdo, (String("/systems/") + SYSTEM_ID + "/system/powerStatus").c_str(), &status);
+  if (!statusOk) {
+    Serial.print("[FIREBASE] system/powerStatus write failed: ");
+    Serial.println(fbdo.errorReason());
+  }
+
+  // Only refresh the app's online heartbeat after the current telemetry made it to Firebase.
+  if (readingOk && statusOk) {
+    if (!Firebase.RTDB.setDouble(&fbdo, (String("/systems/") + SYSTEM_ID + "/system/lastSeen").c_str(), (double)nowEpochMs())) {
+      Serial.print("[FIREBASE] system/lastSeen write failed: ");
+      Serial.println(fbdo.errorReason());
+    }
+  } else {
+    Serial.println("[FIREBASE] heartbeat not updated because telemetry writes failed");
+  }
 
   // Mirror both onto MQTT too, if a broker is configured - alongside
   // Firebase, not instead of it.
@@ -585,6 +612,13 @@ void printHelp() {
 
 void printDiag() {
   Serial.println("== ADC diagnostics ==");
+  const float mainsSensorV = readMainsSensorVoltage();
+  Serial.print("Mains sensor (GPIO32): ");
+  Serial.print(mainsSensorV, 2);
+  Serial.print(" V, threshold ");
+  Serial.print(presenceThreshold, 2);
+  Serial.print(" V -> ");
+  Serial.println(mainsSensorV > presenceThreshold ? "mains detected" : "mains not detected");
   Serial.print("Extra dividers assumed: voltage=");
   Serial.print(VOLT_EXTRA_DIVIDER_FITTED ? "FITTED" : "NOT fitted");
   Serial.print(", current=");

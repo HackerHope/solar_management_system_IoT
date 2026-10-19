@@ -1,7 +1,9 @@
 import "package:flutter/material.dart";
+import "../config.dart";
 import "../models/sensor_models.dart";
 import "../services/solar_data_service.dart";
 import "../theme.dart";
+import "../widgets/periodic_rebuild.dart";
 import "../widgets/status_states.dart";
 
 class SolarSystemScreen extends StatelessWidget {
@@ -14,9 +16,15 @@ class SolarSystemScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text("Solar System Devices", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        const Text(
+          "Solar System Devices",
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 6),
-        const Text("Connection overview of your solar system.", style: TextStyle(color: AppColors.textMuted)),
+        const Text(
+          "Connection overview of your solar system.",
+          style: TextStyle(color: AppColors.textMuted),
+        ),
         const SizedBox(height: 16),
         StreamBuilder<Reading?>(
           stream: dataService.latestReading(),
@@ -27,36 +35,82 @@ class SolarSystemScreen extends StatelessWidget {
                 return StreamBuilder<List<DeviceStatus>>(
                   stream: dataService.devices(),
                   builder: (context, devicesSnap) {
-                    final connected = (devicesSnap.data ?? []).isNotEmpty &&
-                        devicesSnap.data!.every((d) => d.status == DeviceOnlineStatus.online);
+                    final connected =
+                        (devicesSnap.data ?? []).isNotEmpty &&
+                        devicesSnap.data!.every(
+                          (d) => d.status == DeviceOnlineStatus.online,
+                        );
                     final latest = readingSnap.data;
                     final power = powerSnap.data;
 
-                    // Solar-side numbers come from the power status; the main
-                    // reading is the battery side.
-                    final solarValue = power != null
-                        ? "${power.solarVoltage.toStringAsFixed(1)} V / ${power.solarCurrent.toStringAsFixed(1)} A"
-                        : "--";
-                    final batteryValue = latest != null
-                        ? "${latest.voltage.toStringAsFixed(1)} V  •  ${latest.batteryPercent.toStringAsFixed(0)}%"
-                        : "--";
-                    final loadValue = power != null
-                        ? "Ch1 ${power.channel1 ? "ON" : "OFF"}  •  Ch2 ${power.channel2 ? "ON" : "OFF"}"
-                        : "--";
-                    final tempValue = latest == null
-                        ? "--"
-                        : (latest.hasTemperature ? "${latest.temperature.toStringAsFixed(0)}°C" : "No sensor");
+                    return PeriodicRebuild(
+                      builder: (_) {
+                        final now = DateTime.now().millisecondsSinceEpoch;
+                        final readingAge = latest == null
+                            ? null
+                            : now - latest.timestamp;
+                        final readingFresh =
+                            readingAge != null &&
+                            readingAge >= 0 &&
+                            readingAge < kDeviceStaleMs;
+                        final powerAge = power?.timestamp == null
+                            ? null
+                            : now - power!.timestamp!;
+                        final powerFresh =
+                            powerAge != null &&
+                            powerAge >= 0 &&
+                            powerAge < kDeviceStaleMs;
 
-                    return Column(
-                      children: [
-                        _deviceCard("☀️", "Solar Panel", solarValue, connected),
-                        // No sensor on the charge controller itself in this prototype
-                        _deviceCard("⚡", "Charge Controller", "Not monitored", null),
-                        _deviceCard("🔋", "Battery Monitor", batteryValue, connected),
-                        _deviceCard("🌡️", "Temperature Sensor", tempValue,
-                            (latest != null && !latest.hasTemperature) ? null : connected),
-                        _deviceCard("💡", "Load Controller", loadValue, power == null ? null : connected),
-                      ],
+                        final solarValue = powerFresh
+                            ? "${power!.solarVoltage.toStringAsFixed(1)} V / ${power.solarCurrent.toStringAsFixed(1)} A"
+                            : "--";
+                        final batteryValue = readingFresh
+                            ? "${latest!.voltage.toStringAsFixed(1)} V  •  ${latest.batteryPercent.toStringAsFixed(0)}%"
+                            : "--";
+                        final loadValue = powerFresh
+                            ? "Ch1 ${power!.channel1 ? "ON" : "OFF"}  •  Ch2 ${power.channel2 ? "ON" : "OFF"}"
+                            : "--";
+
+                        return Column(
+                          children: [
+                            _deviceCard(
+                              "☀️",
+                              "Solar Panel",
+                              solarValue,
+                              powerFresh ? connected : null,
+                              neutralStatusLabel: powerFresh
+                                  ? null
+                                  : "No recent data",
+                            ),
+                            // No sensor on the charge controller itself in this prototype
+                            _deviceCard(
+                              "⚡",
+                              "Charge Controller",
+                              "Not monitored",
+                              null,
+                              neutralStatusLabel: "Not monitored",
+                            ),
+                            _deviceCard(
+                              "🔋",
+                              "Battery Monitor",
+                              batteryValue,
+                              readingFresh ? connected : null,
+                              neutralStatusLabel: readingFresh
+                                  ? null
+                                  : "No recent data",
+                            ),
+                            _deviceCard(
+                              "💡",
+                              "Load Controller",
+                              loadValue,
+                              powerFresh ? connected : null,
+                              neutralStatusLabel: powerFresh
+                                  ? null
+                                  : "No recent data",
+                            ),
+                          ],
+                        );
+                      },
                     );
                   },
                 );
@@ -69,8 +123,16 @@ class SolarSystemScreen extends StatelessWidget {
   }
 
   // status: true = online, false = offline, null = not wired / not monitored (neutral color)
-  Widget _deviceCard(String icon, String name, String value, bool? status) {
-    final statusLabel = status == null ? "Not wired" : (status ? "Online" : "Offline");
+  Widget _deviceCard(
+    String icon,
+    String name,
+    String value,
+    bool? status, {
+    String? neutralStatusLabel,
+  }) {
+    final statusLabel = status == null
+        ? neutralStatusLabel ?? "Not wired"
+        : (status ? "Online" : "Offline");
     final statusColor = status == null
         ? AppColors.textMuted
         : (status ? AppColors.online : AppColors.offline);
@@ -86,13 +148,25 @@ class SolarSystemScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
-                  Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
             ),
-            Text(statusLabel, style: TextStyle(color: statusColor, fontSize: 12)),
+            Text(
+              statusLabel,
+              style: TextStyle(color: statusColor, fontSize: 12),
+            ),
           ],
         ),
       ),

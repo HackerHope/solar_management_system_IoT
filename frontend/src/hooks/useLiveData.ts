@@ -77,16 +77,8 @@ export function useLiveData(): LiveDataState {
 }
 
 function checkThresholds(reading: Reading, settings: Settings | null) {
-  const tempLimit = settings?.tempLimitC ?? 45;
   const batteryLow = settings?.batteryLowPct ?? 20;
 
-  if (reading.temperature != null && reading.temperature > tempLimit) {
-    raiseAlert(
-      "warning",
-      "High Temperature",
-      `Temperature reached ${reading.temperature.toFixed(1)}°C (limit ${tempLimit}°C)`
-    );
-  }
   if (reading.batteryPercent < batteryLow) {
     raiseAlert(
       "warning",

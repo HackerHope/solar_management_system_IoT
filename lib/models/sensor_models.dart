@@ -2,14 +2,8 @@ class Reading {
   final int timestamp; // ms since epoch
   final double voltage;
   final double current;
-  final double temperature;
   final double batteryPercent;
   final double power;
-
-  /// False when the device has no temperature sensor fitted and therefore
-  /// leaves the field out. [temperature] is 0 in that case and must not be
-  /// shown or used for alerts.
-  final bool hasTemperature;
 
   /// Solar power in watts, when the firmware reports it (null on older firmware).
   final double? solarPower;
@@ -20,10 +14,8 @@ class Reading {
     required this.timestamp,
     required this.voltage,
     required this.current,
-    required this.temperature,
     required this.batteryPercent,
     required this.power,
-    this.hasTemperature = true,
     this.solarPower,
   });
 
@@ -32,10 +24,8 @@ class Reading {
       timestamp: (map["timestamp"] as num?)?.toInt() ?? 0,
       voltage: (map["voltage"] as num?)?.toDouble() ?? 0,
       current: (map["current"] as num?)?.toDouble() ?? 0,
-      temperature: (map["temperature"] as num?)?.toDouble() ?? 0,
       batteryPercent: (map["batteryPercent"] as num?)?.toDouble() ?? 0,
       power: (map["power"] as num?)?.toDouble() ?? 0,
-      hasTemperature: map["temperature"] != null,
       solarPower: (map["solarPower"] as num?)?.toDouble(),
     );
   }
@@ -91,13 +81,13 @@ class AppAlert {
 
 class AppSettings {
   final String deviceName;
-  final double tempLimitC;
   final double batteryLowPct;
   final double lowVoltageV;
   final double readingIntervalSec;
   final String mqttBrokerHost;
   final int mqttBrokerPort;
   final bool mqttUseTls;
+  final List<String> channelNames;
 
   /// Automatic load control (runs on the device): switches off the
   /// non-essential channel when the battery is low and restores it later.
@@ -110,7 +100,6 @@ class AppSettings {
 
   const AppSettings({
     required this.deviceName,
-    required this.tempLimitC,
     required this.batteryLowPct,
     required this.lowVoltageV,
     required this.readingIntervalSec,
@@ -121,11 +110,11 @@ class AppSettings {
     required this.shedBelowPct,
     required this.restoreAbovePct,
     required this.tariffZmwPerKwh,
+    this.channelNames = const ["Channel 1", "Channel 2"],
   });
 
   static const defaults = AppSettings(
     deviceName: "My Solar System",
-    tempLimitC: 45,
     batteryLowPct: 20,
     lowVoltageV: 10.5,
     readingIntervalSec: 5,
@@ -136,45 +125,71 @@ class AppSettings {
     shedBelowPct: 20,
     restoreAbovePct: 35,
     tariffZmwPerKwh: 0,
+    channelNames: ["Channel 1", "Channel 2"],
   );
+
+  static List<String> _readChannelNames(dynamic value) {
+    final names = value is List
+        ? value.whereType<String>().map((name) => name.trim()).toList()
+        : value is Map
+        ? value.values.whereType<String>().map((name) => name.trim()).toList()
+        : <String>[];
+    for (var i = 0; i < names.length; i++) {
+      if (names[i].isEmpty) names[i] = "Channel ${i + 1}";
+    }
+    while (names.length < 2) {
+      names.add("Channel ${names.length + 1}");
+    }
+    return names;
+  }
 
   factory AppSettings.fromMap(Map<dynamic, dynamic>? map) {
     if (map == null) return defaults;
     return AppSettings(
       deviceName: map["deviceName"] as String? ?? defaults.deviceName,
-      tempLimitC: (map["tempLimitC"] as num?)?.toDouble() ?? defaults.tempLimitC,
-      batteryLowPct: (map["batteryLowPct"] as num?)?.toDouble() ?? defaults.batteryLowPct,
-      lowVoltageV: (map["lowVoltageV"] as num?)?.toDouble() ?? defaults.lowVoltageV,
+      batteryLowPct:
+          (map["batteryLowPct"] as num?)?.toDouble() ?? defaults.batteryLowPct,
+      lowVoltageV:
+          (map["lowVoltageV"] as num?)?.toDouble() ?? defaults.lowVoltageV,
       readingIntervalSec:
-          (map["readingIntervalSec"] as num?)?.toDouble() ?? defaults.readingIntervalSec,
-      mqttBrokerHost: map["mqttBrokerHost"] as String? ?? defaults.mqttBrokerHost,
-      mqttBrokerPort: (map["mqttBrokerPort"] as num?)?.toInt() ?? defaults.mqttBrokerPort,
+          (map["readingIntervalSec"] as num?)?.toDouble() ??
+          defaults.readingIntervalSec,
+      mqttBrokerHost:
+          map["mqttBrokerHost"] as String? ?? defaults.mqttBrokerHost,
+      mqttBrokerPort:
+          (map["mqttBrokerPort"] as num?)?.toInt() ?? defaults.mqttBrokerPort,
       mqttUseTls: map["mqttUseTls"] as bool? ?? defaults.mqttUseTls,
-      autoLoadControl: map["autoLoadControl"] as bool? ?? defaults.autoLoadControl,
-      shedBelowPct: (map["shedBelowPct"] as num?)?.toDouble() ?? defaults.shedBelowPct,
-      restoreAbovePct: (map["restoreAbovePct"] as num?)?.toDouble() ?? defaults.restoreAbovePct,
-      tariffZmwPerKwh: (map["tariffZmwPerKwh"] as num?)?.toDouble() ?? defaults.tariffZmwPerKwh,
+      autoLoadControl:
+          map["autoLoadControl"] as bool? ?? defaults.autoLoadControl,
+      shedBelowPct:
+          (map["shedBelowPct"] as num?)?.toDouble() ?? defaults.shedBelowPct,
+      restoreAbovePct:
+          (map["restoreAbovePct"] as num?)?.toDouble() ??
+          defaults.restoreAbovePct,
+      tariffZmwPerKwh:
+          (map["tariffZmwPerKwh"] as num?)?.toDouble() ??
+          defaults.tariffZmwPerKwh,
+      channelNames: _readChannelNames(map["channelNames"]),
     );
   }
 
   Map<String, dynamic> toMap() => {
-        "deviceName": deviceName,
-        "tempLimitC": tempLimitC,
-        "batteryLowPct": batteryLowPct,
-        "lowVoltageV": lowVoltageV,
-        "readingIntervalSec": readingIntervalSec,
-        "mqttBrokerHost": mqttBrokerHost,
-        "mqttBrokerPort": mqttBrokerPort,
-        "mqttUseTls": mqttUseTls,
-        "autoLoadControl": autoLoadControl,
-        "shedBelowPct": shedBelowPct,
-        "restoreAbovePct": restoreAbovePct,
-        "tariffZmwPerKwh": tariffZmwPerKwh,
-      };
+    "deviceName": deviceName,
+    "batteryLowPct": batteryLowPct,
+    "lowVoltageV": lowVoltageV,
+    "readingIntervalSec": readingIntervalSec,
+    "mqttBrokerHost": mqttBrokerHost,
+    "mqttBrokerPort": mqttBrokerPort,
+    "mqttUseTls": mqttUseTls,
+    "autoLoadControl": autoLoadControl,
+    "shedBelowPct": shedBelowPct,
+    "restoreAbovePct": restoreAbovePct,
+    "tariffZmwPerKwh": tariffZmwPerKwh,
+    "channelNames": channelNames,
+  };
 
   AppSettings copyWith({
     String? deviceName,
-    double? tempLimitC,
     double? batteryLowPct,
     double? lowVoltageV,
     double? readingIntervalSec,
@@ -185,10 +200,10 @@ class AppSettings {
     double? shedBelowPct,
     double? restoreAbovePct,
     double? tariffZmwPerKwh,
+    List<String>? channelNames,
   }) {
     return AppSettings(
       deviceName: deviceName ?? this.deviceName,
-      tempLimitC: tempLimitC ?? this.tempLimitC,
       batteryLowPct: batteryLowPct ?? this.batteryLowPct,
       lowVoltageV: lowVoltageV ?? this.lowVoltageV,
       readingIntervalSec: readingIntervalSec ?? this.readingIntervalSec,
@@ -199,6 +214,7 @@ class AppSettings {
       shedBelowPct: shedBelowPct ?? this.shedBelowPct,
       restoreAbovePct: restoreAbovePct ?? this.restoreAbovePct,
       tariffZmwPerKwh: tariffZmwPerKwh ?? this.tariffZmwPerKwh,
+      channelNames: channelNames ?? this.channelNames,
     );
   }
 }
@@ -237,15 +253,20 @@ class CircuitsReading {
   factory CircuitsReading.fromMap(Map<dynamic, dynamic> map) {
     return CircuitsReading(
       timestamp: (map["timestamp"] as num?)?.toInt() ?? 0,
-      lights: map["lights"] != null ? CircuitPoint.fromMap(map["lights"]) : null,
+      lights: map["lights"] != null
+          ? CircuitPoint.fromMap(map["lights"])
+          : null,
       fan: map["fan"] != null ? CircuitPoint.fromMap(map["fan"]) : null,
       tv: map["tv"] != null ? CircuitPoint.fromMap(map["tv"]) : null,
-      fridge: map["fridge"] != null ? CircuitPoint.fromMap(map["fridge"]) : null,
+      fridge: map["fridge"] != null
+          ? CircuitPoint.fromMap(map["fridge"])
+          : null,
     );
   }
 }
 
 class PowerStatus {
+  final int? timestamp;
   final double solarVoltage;
   final double solarCurrent;
   final String source; // "grid" or "inverter"
@@ -263,6 +284,7 @@ class PowerStatus {
   double get solarPower => solarVoltage * solarCurrent;
 
   PowerStatus({
+    this.timestamp,
     required this.solarVoltage,
     required this.solarCurrent,
     required this.source,
@@ -276,10 +298,11 @@ class PowerStatus {
 
   factory PowerStatus.fromMap(Map<dynamic, dynamic> map) {
     return PowerStatus(
+      timestamp: (map["timestamp"] as num?)?.toInt(),
       solarVoltage: (map["solarVoltage"] as num?)?.toDouble() ?? 0,
       solarCurrent: (map["solarCurrent"] as num?)?.toDouble() ?? 0,
       source: map["source"] as String? ?? "grid",
-      mainsPresent: map["mainsPresent"] as bool? ?? true,
+      mainsPresent: map["mainsPresent"] as bool? ?? false,
       faultTripped: map["faultTripped"] as bool? ?? false,
       channel1: map["channel1"] as bool? ?? false,
       channel2: map["channel2"] as bool? ?? false,
@@ -300,7 +323,11 @@ class DailyEnergy {
   final String date; // yyyy-MM-dd
   final double usedWh;
   final double solarWh;
-  DailyEnergy({required this.date, required this.usedWh, required this.solarWh});
+  DailyEnergy({
+    required this.date,
+    required this.usedWh,
+    required this.solarWh,
+  });
 
   factory DailyEnergy.fromMap(String date, Map<dynamic, dynamic> map) {
     return DailyEnergy(

@@ -17,7 +17,7 @@ Record the pass counts in Chapter 6 (section 6.2/6.3). Run `flutter analyze` as 
 export FIREBASE_API_KEY=...            # Project settings > Web API key
 export FIREBASE_DB_URL=https://<project>-default-rtdb.<region>.firebasedatabase.app
 export DEVICE_EMAIL=...  DEVICE_PASSWORD=...  SYSTEM_ID=default
-node tools/simulate_device.js normal        # also: low-battery | overtemp | fault | stop
+node tools/simulate_device.js normal        # also: low-battery | fault | stop
 ```
 
 The device account must be a `device` member of the system (docs/security.md, step 5).
@@ -30,7 +30,7 @@ The device account must be a `device` member of the system (docs/security.md, st
 | T4 | Run the simulator `normal`; watch cards and charts move without refreshing |
 | T5 | Select a new empty System ID in Systems; the dashboard shows the "Waiting for sensor data" message |
 | T6 | Stop the simulator (or power off the ESP32); Devices shows Offline after about 30 s (kDeviceStaleMs in lib/config.dart) |
-| T7 | `overtemp` scenario; one "High Temperature" alert, no repeat within 5 minutes |
+| T7 | `low-battery` scenario for more than 5 minutes; one "Low Battery" alert, no repeat within 5 minutes |
 | T8 | `low-battery` scenario; "Low Battery" alert (and "Low Battery Voltage") |
 | T9 | Change a limit in Settings, Save; restart the app and confirm it persisted |
 | T10-T11 | Toggle Channel 1/2 with and without an MQTT broker connected (needs the real device) |
@@ -43,6 +43,10 @@ The device account must be a `device` member of the system (docs/security.md, st
 | New T18 | Run `normal` for a few minutes, then check Analytics shows today's kWh (Cloud Functions deployed) |
 | New T19 | With the app closed, run `low-battery`; a push notification arrives |
 | New T20 | Not-a-member account cannot read your system data |
+
+## 3b. AI Energy Advisor tests (Gemini)
+
+Follow `docs/ai-insights.md`. In short: `node tools/check_gemini.js` (keys and models work), `node tools/try_insights.js bad-sensors` (the AI refuses to give advice on wrong readings), then force-run the `dailyInsights` job and confirm `insights/latest.source` is `gemini` and the dashboard chip says "AI · advisory only".
 
 ## 4. Latency measurements (Table 6.2)
 

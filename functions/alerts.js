@@ -5,7 +5,6 @@ const COOLDOWN_MS = 5 * 60 * 1000; // same 5-minute cooldown as the app
 const OFFLINE_AFTER_MS = 3 * 60 * 1000; // no heartbeat for 3 minutes => offline
 
 const DEFAULT_SETTINGS = {
-  tempLimitC: 45,
   batteryLowPct: 20,
   lowVoltageV: 10.5,
 };
@@ -15,20 +14,12 @@ const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 /**
  * Alerts a reading would trigger, before the cooldown is applied.
  * NOTE: `voltage` is the BATTERY voltage with the power-management firmware.
- * A reading without a `temperature` field means "no sensor": no temperature alert.
  */
 function evaluateReading(reading, settings = {}) {
   const s = { ...DEFAULT_SETTINGS, ...settings };
   const out = [];
   if (!reading) return out;
 
-  if (isNum(reading.temperature) && reading.temperature > s.tempLimitC) {
-    out.push({
-      level: "warning",
-      title: "High Temperature",
-      message: `Temperature reached ${reading.temperature.toFixed(1)}°C (limit ${s.tempLimitC.toFixed(0)}°C)`,
-    });
-  }
   if (isNum(reading.batteryPercent) && reading.batteryPercent < s.batteryLowPct) {
     out.push({
       level: "warning",

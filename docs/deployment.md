@@ -1,13 +1,13 @@
 # Deploying the Dashboard (Firebase Hosting)
 
-This gives your React dashboard a real public URL (e.g.
-`https://solariot-dashboard.web.app`), reachable from anywhere - no port
+This gives your Flutter web app a real public URL (e.g.
+`https://solar-iot-101.web.app`), reachable from anywhere - no port
 forwarding, no VPS, no always-on computer required. It's what makes "outside
 your home network" work now that the ESP32 talks to Firebase directly.
 
 ## Prerequisites
 - You've completed `docs/firebase-setup.md`
-- Your frontend `.env` is filled in and the app runs locally with `npm run dev`
+- Flutter is installed and the app runs locally
 - `firebase-tools` installed: `npm install -g firebase-tools`
 
 ## 1. Log in and connect this project
@@ -18,30 +18,28 @@ From the project root (where `firebase.json` and `.firebaserc` live):
 firebase login
 ```
 
-Edit `.firebaserc` and replace `YOUR_FIREBASE_PROJECT_ID` with your actual
-project ID (find it in Firebase console > Project settings > General).
+This repository is already configured to use the `solar-iot-101` Firebase
+project. If you use a different project, select it in Firebase CLI or pass its
+project ID to the deploy command.
 
-## 2. Build the frontend
+## 2. Build the Flutter web app
 
 ```bash
-cd frontend
-npm install
-npm run build
+flutter build web --release
 ```
 
-This produces `frontend/dist/` - `firebase.json` is already configured to
-serve that folder.
+This produces `build/web/`, which Firebase Hosting is configured to serve.
 
 ## 3. Deploy
 
 From the project root:
 
 ```bash
-firebase deploy --only hosting,database
+firebase deploy --only hosting --project solar-iot-101
 ```
 
-This pushes both your built frontend and your `database.rules.json` security
-rules. Firebase will print your live URL when it's done.
+Firebase will print your live URL when it's done. Database rules are deployed
+separately with `firebase deploy --only database --project solar-iot-101`.
 
 ## 4. Verify
 
@@ -52,9 +50,10 @@ rules. Firebase will print your live URL when it's done.
 
 ## Re-deploying after changes
 
-Any time you change frontend code:
+Any time you change the Flutter app:
 ```bash
-cd frontend && npm run build && cd .. && firebase deploy --only hosting
+flutter build web --release
+firebase deploy --only hosting --project solar-iot-101
 ```
 
 Any time you change `database.rules.json`:

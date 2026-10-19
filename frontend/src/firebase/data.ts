@@ -21,7 +21,6 @@ const DEVICE_NAMES = [
   "ESP32 Controller",
   "Battery Voltage Sensor",
   "Battery Current Sensor",
-  "Temperature Sensor",
   "Battery Monitor",
 ] as const;
 const STALE_MS = 15000;
@@ -123,7 +122,6 @@ export async function raiseAlert(
 // ---- Settings ----
 
 const DEFAULT_SETTINGS: Settings = {
-  tempLimitC: 45,
   batteryLowPct: 20,
   readingIntervalSec: 5,
 };

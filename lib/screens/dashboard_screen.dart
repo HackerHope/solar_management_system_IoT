@@ -1,10 +1,10 @@
-
 import "dart:async";
 
 import "package:flutter/material.dart";
 import "package:intl/intl.dart";
 
 import "../config.dart";
+import "../models/ai_insight.dart";
 import "../models/sensor_models.dart";
 import "../services/alert_thresholds.dart";
 import "../services/mqtt_service.dart";
@@ -12,6 +12,8 @@ import "../services/solar_data_service.dart";
 import "../widgets/alerts_panel.dart";
 import "../widgets/data_age.dart";
 import "../widgets/device_status_panel.dart";
+import "../widgets/insights_card.dart";
+import "../widgets/periodic_rebuild.dart";
 import "../widgets/power_chart.dart";
 import "../widgets/power_status_panel.dart";
 import "../widgets/sensor_line_chart.dart";
@@ -47,8 +49,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       setState(() => _settings = s);
 
-      if (s.mqttBrokerHost.isNotEmpty &&
-          !_mqttService.isConnected) {
+      if (s.mqttBrokerHost.isNotEmpty && !_mqttService.isConnected) {
         _mqttService.connectFromSettings(s);
       }
     });
@@ -98,13 +99,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _voltageStatus(Reading r) =>
       r.voltage < _settings.lowVoltageV ? "Low" : "OK";
 
-  String _currentStatus(Reading r) =>
-      r.current.abs() < 0.1 ? "Idle" : "In use";
-
-  String _temperatureStatus(Reading r) {
-    if (!r.hasTemperature) return "No sensor";
-    return r.temperature > _settings.tempLimitC ? "High" : "Normal";
-  }
+  String _currentStatus(Reading r) => r.current.abs() < 0.1 ? "Idle" : "In use";
 
   @override
   Widget build(BuildContext context) {
@@ -125,9 +120,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
                 _DashboardHeader(
-                  temperature: (latest != null && latest.hasTemperature)
-                      ? latest.temperature
-                      : null,
                   deviceName: _settings.deviceName,
                   timestampMs: latest?.timestamp,
                 ),
@@ -157,76 +149,103 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     return LayoutBuilder(
                       builder: (context, constraints) {
-                        final columns =
-                            constraints.maxWidth >= 900 ? 4 : 2;
+                        final columns = constraints.maxWidth >= 900 ? 4 : 2;
 
-                        return GridView.count(
-                          crossAxisCount: columns,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio:
-                              constraints.maxWidth >= 900 ? 1.45 : 1.20,
-                          children: [
-                            StatCard(
-                              icon: "🔋",
-                              title: "Battery Level",
-                              value: latest != null
-                                  ? "${latest.batteryPercent.toStringAsFixed(0)}%"
-                                  : "--",
-                              status: latest != null
-                                  ? _batteryStatusLabel(
-                                      latest.batteryPercent,
-                                    )
-                                  : "No data",
-                            ),
-                            StatCard(
-                              icon: "🔌",
-                              title: "Battery Voltage",
-                              value: latest != null
-                                  ? "${latest.voltage.toStringAsFixed(1)} V"
-                                  : "--",
-                              status: latest != null
-                                  ? _voltageStatus(latest)
-                                  : "No data",
-                            ),
-                            StatCard(
-                              icon: "⚡",
-                              title: "Load Current",
-                              value: latest != null
-                                  ? "${latest.current.toStringAsFixed(1)} A"
-                                  : "--",
-                              status: latest != null
-                                  ? _currentStatus(latest)
-                                  : "No data",
-                            ),
-                            StatCard(
-                              icon: "☀️",
-                              title: "Solar Power",
-                              value: power != null
-                                  ? "${power.solarPower.toStringAsFixed(0)} W"
-                                  : "--",
-                              status: power == null
-                                  ? "No data"
-                                  : (power.solarPower > 1
-                                      ? "Generating"
-                                      : "No sun"),
-                            ),
-                            StatCard(
-                              icon: "🌡️",
-                              title: "Temperature",
-                              value: (latest != null && latest.hasTemperature)
-                                  ? "${latest.temperature.toStringAsFixed(0)}°C"
-                                  : "N/A",
-                              status: latest != null
-                                  ? _temperatureStatus(latest)
-                                  : "No data",
-                            ),
-                          ],
+                        return PeriodicRebuild(
+                          builder: (_) {
+                            final now = DateTime.now().millisecondsSinceEpoch;
+                            final readingAge = latest == null
+                                ? null
+                                : now - latest.timestamp;
+                            final readingFresh =
+                                readingAge != null &&
+                                readingAge >= 0 &&
+                                readingAge < kDeviceStaleMs;
+                            final powerAge = power?.timestamp == null
+                                ? null
+                                : now - power!.timestamp!;
+                            final powerFresh =
+                                powerAge != null &&
+                                powerAge >= 0 &&
+                                powerAge < kDeviceStaleMs;
+
+                            return GridView.count(
+                              crossAxisCount: columns,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: constraints.maxWidth >= 900
+                                  ? 1.45
+                                  : 1.20,
+                              children: [
+                                StatCard(
+                                  icon: "🔋",
+                                  title: "Battery Level",
+                                  value: readingFresh
+                                      ? "${latest!.batteryPercent.toStringAsFixed(0)}%"
+                                      : "--",
+                                  status: readingFresh
+                                      ? _batteryStatusLabel(
+                                          latest!.batteryPercent,
+                                        )
+                                      : "Stale / no data",
+                                ),
+                                StatCard(
+                                  icon: "🔌",
+                                  title: "Battery Voltage",
+                                  value: readingFresh
+                                      ? "${latest!.voltage.toStringAsFixed(1)} V"
+                                      : "--",
+                                  status: readingFresh
+                                      ? _voltageStatus(latest!)
+                                      : "Stale / no data",
+                                ),
+                                StatCard(
+                                  icon: "⚡",
+                                  title: "Load Current",
+                                  value: readingFresh
+                                      ? "${latest!.current.toStringAsFixed(1)} A"
+                                      : "--",
+                                  status: readingFresh
+                                      ? _currentStatus(latest!)
+                                      : "Stale / no data",
+                                ),
+                                StatCard(
+                                  icon: "☀️",
+                                  title: "Solar Power",
+                                  value: powerFresh
+                                      ? "${power!.solarPower.toStringAsFixed(0)} W"
+                                      : "--",
+                                  status: !powerFresh
+                                      ? "Stale / no data"
+                                      : (power!.solarPower > 1
+                                            ? "Generating"
+                                            : "No sun"),
+                                ),
+                              ],
+                            );
+                          },
                         );
                       },
                     );
+                  },
+                ),
+
+                const SizedBox(height: 28),
+
+                const _SectionHeading(
+                  title: "Energy advisor",
+                  subtitle: "Daily summary and tips (AI-generated)",
+                  icon: Icons.auto_awesome_rounded,
+                ),
+
+                const SizedBox(height: 14),
+
+                StreamBuilder<AiInsight?>(
+                  stream: _dataService.insights(),
+                  builder: (context, snap) {
+                    return InsightsCard(insight: snap.data);
                   },
                 ),
 
@@ -268,10 +287,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 StreamBuilder<List<AppAlert>>(
                   stream: _dataService.alerts(),
                   builder: (context, snap) {
-                    return AlertsPanel(
-                      alerts: snap.data ?? [],
-                      limit: 3,
-                    );
+                    return AlertsPanel(alerts: snap.data ?? [], limit: 3);
                   },
                 ),
 
@@ -288,9 +304,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 StreamBuilder<List<DeviceStatus>>(
                   stream: _dataService.devices(),
                   builder: (context, snap) {
-                    return DeviceStatusPanel(
-                      devices: snap.data ?? [],
-                    );
+                    return DeviceStatusPanel(devices: snap.data ?? []);
                   },
                 ),
 
@@ -307,10 +321,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 StreamBuilder<PowerStatus?>(
                   stream: _dataService.powerStatus(),
                   builder: (context, snap) {
-                    return PowerStatusPanel(
-                      status: snap.data,
-                      onToggleChannel: _toggleChannel,
-                      onResetSafety: _resetSafety,
+                    return PeriodicRebuild(
+                      builder: (_) => PowerStatusPanel(
+                        status: snap.data,
+                        channelNames: _settings.channelNames,
+                        onToggleChannel: _toggleChannel,
+                        onResetSafety: _resetSafety,
+                      ),
                     );
                   },
                 ),
@@ -337,15 +354,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 }
 
 class _DashboardHeader extends StatelessWidget {
-  final double? temperature;
   final String deviceName;
   final int? timestampMs;
 
-  const _DashboardHeader({
-    required this.temperature,
-    required this.deviceName,
-    required this.timestampMs,
-  });
+  const _DashboardHeader({required this.deviceName, required this.timestampMs});
 
   @override
   Widget build(BuildContext context) {
@@ -355,17 +367,12 @@ class _DashboardHeader extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF1C2B40),
-            Color(0xFF111C2D),
-          ],
+          colors: [Color(0xFF1C2B40), Color(0xFF111C2D)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.07),
-        ),
+        border: Border.all(color: Colors.white.withOpacity(0.07)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.12),
@@ -427,9 +434,7 @@ class _DashboardHeader extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.08),
-                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.08)),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -484,31 +489,12 @@ class _DashboardHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              const Icon(
-                Icons.thermostat_rounded,
-                color: Color(0xFFB7F36B),
-                size: 19,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                temperature != null
-                    ? "${temperature!.toStringAsFixed(0)}°C"
-                    : "--°C",
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
             ],
           ),
 
           const SizedBox(height: 16),
 
-          Container(
-            height: 1,
-            color: Colors.white.withOpacity(0.08),
-          ),
+          Container(height: 1, color: Colors.white.withOpacity(0.08)),
 
           const SizedBox(height: 13),
 
@@ -522,10 +508,7 @@ class _DashboardHeader extends StatelessWidget {
               const SizedBox(width: 7),
               const Text(
                 "Latest sensor reading",
-                style: TextStyle(
-                  color: Color(0xFF9CAEC4),
-                  fontSize: 11,
-                ),
+                style: TextStyle(color: Color(0xFF9CAEC4), fontSize: 11),
               ),
               const Spacer(),
               Flexible(
@@ -565,11 +548,7 @@ class _SectionHeading extends StatelessWidget {
             color: const Color(0xFFB7F36B).withOpacity(0.10),
             borderRadius: BorderRadius.circular(13),
           ),
-          child: Icon(
-            icon,
-            color: const Color(0xFFB7F36B),
-            size: 21,
-          ),
+          child: Icon(icon, color: const Color(0xFFB7F36B), size: 21),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -588,10 +567,7 @@ class _SectionHeading extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 subtitle,
-                style: const TextStyle(
-                  color: Color(0xFF9CAEC4),
-                  fontSize: 12,
-                ),
+                style: const TextStyle(color: Color(0xFF9CAEC4), fontSize: 12),
               ),
             ],
           ),

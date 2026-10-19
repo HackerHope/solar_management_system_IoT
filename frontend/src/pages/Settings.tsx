@@ -35,18 +35,6 @@ function Settings() {
       <form onSubmit={handleSubmit}>
         <div className="page-grid">
           <div className="panel">
-            <h3>Temperature Limit (°C)</h3>
-            <input
-              className="input"
-              type="number"
-              value={settings.tempLimitC}
-              onChange={(e) =>
-                setSettings({ ...settings, tempLimitC: Number(e.target.value) })
-              }
-            />
-          </div>
-
-          <div className="panel">
             <h3>Battery Low Alert (%)</h3>
             <input
               className="input"

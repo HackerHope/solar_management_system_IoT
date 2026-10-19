@@ -24,7 +24,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   DateTime? _savedAt;
 
   final _nameController = TextEditingController();
-  final _tempController = TextEditingController();
   final _batteryController = TextEditingController();
   final _intervalController = TextEditingController();
   final _mqttHostController = TextEditingController();
@@ -35,6 +34,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _shedController = TextEditingController();
   final _restoreController = TextEditingController();
   final _tariffController = TextEditingController();
+  List<TextEditingController> _channelNameControllers = AppSettings
+      .defaults
+      .channelNames
+      .map((name) => TextEditingController(text: name))
+      .toList();
   StreamSubscription<AppSettings>? _settingsSub;
   bool _mqttTls = false;
   bool _autoLoad = false;
@@ -47,7 +51,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _settings = s;
         _nameController.text = s.deviceName;
-        _tempController.text = s.tempLimitC.toStringAsFixed(0);
         _batteryController.text = s.batteryLowPct.toStringAsFixed(0);
         _intervalController.text = s.readingIntervalSec.toStringAsFixed(0);
         _mqttHostController.text = s.mqttBrokerHost;
@@ -57,7 +60,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _autoLoad = s.autoLoadControl;
         _shedController.text = s.shedBelowPct.toStringAsFixed(0);
         _restoreController.text = s.restoreAbovePct.toStringAsFixed(0);
-        _tariffController.text = s.tariffZmwPerKwh == 0 ? "" : s.tariffZmwPerKwh.toString();
+        _tariffController.text = s.tariffZmwPerKwh == 0
+            ? ""
+            : s.tariffZmwPerKwh.toString();
+        _syncChannelNameControllers(s.channelNames);
       });
     });
     // MQTT username/password live on this device only (never synced to Firebase)
@@ -72,7 +78,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _settingsSub?.cancel();
     _nameController.dispose();
-    _tempController.dispose();
     _batteryController.dispose();
     _intervalController.dispose();
     _mqttHostController.dispose();
@@ -83,6 +88,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _shedController.dispose();
     _restoreController.dispose();
     _tariffController.dispose();
+    for (final controller in _channelNameControllers) {
+      controller.dispose();
+    }
     _mqttService.dispose();
     super.dispose();
   }
@@ -97,7 +105,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? "Connected to broker" : "Could not connect to broker")),
+      SnackBar(
+        content: Text(
+          ok ? "Connected to broker" : "Could not connect to broker",
+        ),
+      ),
     );
   }
 
@@ -108,34 +120,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
         deviceName: _nameController.text.trim().isEmpty
             ? AppSettings.defaults.deviceName
             : _nameController.text.trim(),
-        tempLimitC: double.tryParse(_tempController.text) ?? AppSettings.defaults.tempLimitC,
-        batteryLowPct: double.tryParse(_batteryController.text) ?? AppSettings.defaults.batteryLowPct,
+        batteryLowPct:
+            double.tryParse(_batteryController.text) ??
+            AppSettings.defaults.batteryLowPct,
         readingIntervalSec:
-            double.tryParse(_intervalController.text) ?? AppSettings.defaults.readingIntervalSec,
+            double.tryParse(_intervalController.text) ??
+            AppSettings.defaults.readingIntervalSec,
         mqttBrokerHost: _mqttHostController.text.trim(),
-        mqttBrokerPort: int.tryParse(_mqttPortController.text) ?? AppSettings.defaults.mqttBrokerPort,
+        mqttBrokerPort:
+            int.tryParse(_mqttPortController.text) ??
+            AppSettings.defaults.mqttBrokerPort,
         mqttUseTls: _mqttTls,
-        lowVoltageV: double.tryParse(_lowVoltController.text) ?? AppSettings.defaults.lowVoltageV,
+        lowVoltageV:
+            double.tryParse(_lowVoltController.text) ??
+            AppSettings.defaults.lowVoltageV,
         autoLoadControl: _autoLoad,
-        shedBelowPct: double.tryParse(_shedController.text) ?? AppSettings.defaults.shedBelowPct,
+        shedBelowPct:
+            double.tryParse(_shedController.text) ??
+            AppSettings.defaults.shedBelowPct,
         restoreAbovePct:
-            double.tryParse(_restoreController.text) ?? AppSettings.defaults.restoreAbovePct,
+            double.tryParse(_restoreController.text) ??
+            AppSettings.defaults.restoreAbovePct,
         tariffZmwPerKwh: double.tryParse(_tariffController.text) ?? 0,
+        channelNames: _channelNameControllers.asMap().entries.map((entry) {
+          final name = entry.value.text.trim();
+          return name.isEmpty ? "Channel ${entry.key + 1}" : name;
+        }).toList(),
       );
       // Keep the shed/restore pair sensible: restore level must be above the shed level
-      if (updated.autoLoadControl && updated.restoreAbovePct <= updated.shedBelowPct) {
+      if (updated.autoLoadControl &&
+          updated.restoreAbovePct <= updated.shedBelowPct) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("Restore level must be higher than the shed level.")));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Restore level must be higher than the shed level.",
+              ),
+            ),
+          );
         }
         return;
       }
-      await MqttService.saveCredentials(_mqttUserController.text.trim(), _mqttPassController.text);
+      await MqttService.saveCredentials(
+        _mqttUserController.text.trim(),
+        _mqttPassController.text,
+      );
       await _dataService.saveSettings(updated);
       setState(() => _savedAt = DateTime.now());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _syncChannelNameControllers(List<String> names) {
+    if (_channelNameControllers.length == names.length &&
+        List<int>.generate(names.length, (index) => index).every(
+          (index) => _channelNameControllers[index].text == names[index],
+        )) {
+      return;
+    }
+    for (final controller in _channelNameControllers) {
+      controller.dispose();
+    }
+    _channelNameControllers = names
+        .map((name) => TextEditingController(text: name))
+        .toList();
+  }
+
+  void _addChannel() {
+    setState(() {
+      _channelNameControllers.add(
+        TextEditingController(
+          text: "Channel ${_channelNameControllers.length + 1}",
+        ),
+      );
+    });
+  }
+
+  void _removeChannel(int index) {
+    setState(() {
+      _channelNameControllers.removeAt(index).dispose();
+    });
   }
 
   @override
@@ -147,9 +212,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text("Settings", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        const Text(
+          "Settings",
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 6),
-        const Text("Configure system preferences.", style: TextStyle(color: AppColors.textMuted)),
+        const Text(
+          "Configure system preferences.",
+          style: TextStyle(color: AppColors.textMuted),
+        ),
         const SizedBox(height: 16),
 
         StreamBuilder<int?>(
@@ -157,16 +228,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context, snap) => PeriodicRebuild(
             builder: (_) => DeviceSetupPanel(
               lastSeenMs: snap.data,
-              deviceName: _settings?.deviceName ?? AppSettings.defaults.deviceName,
+              deviceName:
+                  _settings?.deviceName ?? AppSettings.defaults.deviceName,
               systemId: SystemManager.instance.currentSystemId,
             ),
           ),
         ),
         const SizedBox(height: 12),
-        _settingField("Device Name", _nameController, keyboardType: TextInputType.text),
+        _settingField(
+          "Device Name",
+          _nameController,
+          keyboardType: TextInputType.text,
+        ),
         const SizedBox(height: 20),
 
-        const Text("MQTT (local network control)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          "Output Channels",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          "Rename the two connected relay outputs or add display-only channels. "
+          "Additional channels are not connected to hardware and cannot be switched.",
+          style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+        ),
+        const SizedBox(height: 12),
+        ..._channelNameControllers.asMap().entries.map((entry) {
+          final index = entry.key;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _settingField(
+                    index < 2
+                        ? "Relay ${index + 1} name"
+                        : "Display-only channel name",
+                    entry.value,
+                    keyboardType: TextInputType.text,
+                  ),
+                ),
+                if (index >= 2)
+                  IconButton(
+                    tooltip: "Remove channel",
+                    onPressed: () => _removeChannel(index),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+              ],
+            ),
+          );
+        }),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _addChannel,
+            icon: const Icon(Icons.add),
+            label: const Text("Add display-only channel"),
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        const Text(
+          "MQTT (local network control)",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 4),
         const Text(
           "Optional. Used alongside Firebase for faster control when your "
@@ -174,23 +299,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
           style: TextStyle(color: AppColors.textMuted, fontSize: 13),
         ),
         const SizedBox(height: 12),
-        _settingField("Broker Host / IP", _mqttHostController, keyboardType: TextInputType.text),
+        _settingField(
+          "Broker Host / IP",
+          _mqttHostController,
+          keyboardType: TextInputType.text,
+        ),
         const SizedBox(height: 12),
-        _settingField("Broker Port", _mqttPortController, keyboardType: TextInputType.number),
+        _settingField(
+          "Broker Port",
+          _mqttPortController,
+          keyboardType: TextInputType.number,
+        ),
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text("Use TLS (encrypted)"),
-          subtitle: const Text("Needs a broker with TLS, usually port 8883",
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          subtitle: const Text(
+            "Needs a broker with TLS, usually port 8883",
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+          ),
           value: _mqttTls,
           onChanged: (v) => setState(() => _mqttTls = v),
         ),
-        _settingField("Broker Username (optional, stored on this phone only)", _mqttUserController,
-            keyboardType: TextInputType.text),
+        _settingField(
+          "Broker Username (optional, stored on this phone only)",
+          _mqttUserController,
+          keyboardType: TextInputType.text,
+        ),
         const SizedBox(height: 12),
-        _settingField("Broker Password (optional, stored on this phone only)", _mqttPassController,
-            keyboardType: TextInputType.text, obscure: true),
+        _settingField(
+          "Broker Password (optional, stored on this phone only)",
+          _mqttPassController,
+          keyboardType: TextInputType.text,
+          obscure: true,
+        ),
         const SizedBox(height: 12),
         StreamBuilder<MqttConnState>(
           stream: _mqttService.connectionState,
@@ -203,22 +345,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               MqttConnState.error => "Connection failed",
               MqttConnState.disconnected => "Not connected",
             };
-            final color = state == MqttConnState.connected ? AppColors.online : AppColors.textMuted;
+            final color = state == MqttConnState.connected
+                ? AppColors.online
+                : AppColors.textMuted;
             return Row(
               children: [
-                Expanded(child: Text(label, style: TextStyle(color: color))),
-                OutlinedButton(onPressed: _handleTestMqtt, child: const Text("Test Connection")),
+                Expanded(
+                  child: Text(label, style: TextStyle(color: color)),
+                ),
+                OutlinedButton(
+                  onPressed: _handleTestMqtt,
+                  child: const Text("Test Connection"),
+                ),
               ],
             );
           },
         ),
         const SizedBox(height: 20),
 
-        const Text("Alert & Reporting Preferences", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          "Alert & Reporting Preferences",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 12),
 
-        _settingField("Temperature Limit (°C)", _tempController),
-        const SizedBox(height: 12),
         _settingField("Battery Low Alert (%)", _batteryController),
         const SizedBox(height: 12),
         _settingField("Low Battery Voltage Alert (V)", _lowVoltController),
@@ -226,7 +376,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _settingField("Reading Interval (seconds)", _intervalController),
         const SizedBox(height: 20),
 
-        const Text("Automatic Load Control", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          "Automatic Load Control",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 4),
         const Text(
           "Runs on the device. When on mains failure the battery falls below the shed level, "
@@ -243,10 +396,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         _settingField("Shed Channel 2 below battery (%)", _shedController),
         const SizedBox(height: 12),
-        _settingField("Restore Channel 2 above battery (%)", _restoreController),
+        _settingField(
+          "Restore Channel 2 above battery (%)",
+          _restoreController,
+        ),
         const SizedBox(height: 20),
 
-        const Text("Energy Cost", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          "Energy Cost",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 4),
         const Text(
           "Enter your electricity price per kWh (from your ZESCO bill or tariff) to see "
@@ -272,9 +431,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _settingField(String label, TextEditingController controller,
-      {TextInputType keyboardType = const TextInputType.numberWithOptions(decimal: true),
-      bool obscure = false}) {
+  Widget _settingField(
+    String label,
+    TextEditingController controller, {
+    TextInputType keyboardType = const TextInputType.numberWithOptions(
+      decimal: true,
+    ),
+    bool obscure = false,
+  }) {
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

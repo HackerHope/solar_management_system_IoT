@@ -1,17 +1,19 @@
-
 import "package:flutter/material.dart";
+import "../config.dart";
 import "../models/sensor_models.dart";
 import "../theme.dart";
 import "status_states.dart";
 
 class PowerStatusPanel extends StatelessWidget {
   final PowerStatus? status;
+  final List<String> channelNames;
   final void Function(int channel, bool on)? onToggleChannel;
   final VoidCallback? onResetSafety;
 
   const PowerStatusPanel({
     super.key,
     required this.status,
+    this.channelNames = const ["Channel 1", "Channel 2"],
     this.onToggleChannel,
     this.onResetSafety,
   });
@@ -24,13 +26,25 @@ class PowerStatusPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     if (status == null) {
       return const Panel(
-        child: EmptyState(
-          message: "Waiting for power status...",
-        ),
+        child: EmptyState(message: "Waiting for power status..."),
       );
     }
 
     final s = status!;
+    final statusAgeMs = s.timestamp == null
+        ? null
+        : DateTime.now().millisecondsSinceEpoch - s.timestamp!;
+    if (statusAgeMs == null ||
+        statusAgeMs < 0 ||
+        statusAgeMs >= kDeviceStaleMs) {
+      return Panel(
+        child: EmptyState(
+          message: statusAgeMs == null
+              ? "Power status has no update timestamp. Reflash the ESP32 firmware to enable freshness checks."
+              : "Power status is stale. Waiting for a fresh update from the ESP32.",
+        ),
+      );
+    }
 
     return Panel(
       child: Column(
@@ -67,10 +81,7 @@ class PowerStatusPanel extends StatelessWidget {
                     SizedBox(height: 4),
                     Text(
                       "Source, protection and outputs",
-                      style: TextStyle(
-                        color: _muted,
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: _muted, fontSize: 11),
                     ),
                   ],
                 ),
@@ -81,18 +92,14 @@ class PowerStatusPanel extends StatelessWidget {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: (s.faultTripped
-                          ? AppColors.offline
-                          : _accent)
+                  color: (s.faultTripped ? AppColors.offline : _accent)
                       .withOpacity(0.10),
                   borderRadius: BorderRadius.circular(9),
                 ),
                 child: Text(
                   s.faultTripped ? "FAULT" : "SAFE",
                   style: TextStyle(
-                    color: s.faultTripped
-                        ? AppColors.offline
-                        : _accent,
+                    color: s.faultTripped ? AppColors.offline : _accent,
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.6,
@@ -116,36 +123,28 @@ class PowerStatusPanel extends StatelessWidget {
           _infoRow(
             icon: Icons.power_rounded,
             label: "Power source",
-            value: s.source == "inverter"
-                ? "Inverter (on battery)"
-                : "Grid",
+            value: s.source == "inverter" ? "Inverter (on battery)" : "Grid",
           ),
 
           _infoRow(
             icon: Icons.electrical_services_rounded,
             label: "Mains supply",
             value: s.mainsPresent ? "Present" : "Not present",
-            valueColor: s.mainsPresent
-                ? _accent
-                : _muted,
+            valueColor: s.mainsPresent ? _accent : _muted,
           ),
 
           _infoRow(
             icon: Icons.shield_outlined,
             label: "Safety protection",
             value: s.faultTripped ? "TRIPPED" : "OK",
-            valueColor: s.faultTripped
-                ? AppColors.offline
-                : _accent,
+            valueColor: s.faultTripped ? AppColors.offline : _accent,
           ),
 
           _infoRow(
             icon: Icons.auto_mode_rounded,
             label: "Auto load control",
             value: s.autoMode ? "ON" : "OFF",
-            valueColor: s.autoMode
-                ? _accent
-                : _muted,
+            valueColor: s.autoMode ? _accent : _muted,
           ),
 
           if (s.autoShed) ...[
@@ -156,9 +155,7 @@ class PowerStatusPanel extends StatelessWidget {
               decoration: BoxDecoration(
                 color: AppColors.warning.withOpacity(0.09),
                 borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: AppColors.warning.withOpacity(0.20),
-                ),
+                border: Border.all(color: AppColors.warning.withOpacity(0.20)),
               ),
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -214,20 +211,14 @@ class PowerStatusPanel extends StatelessWidget {
           // Output controls
           const Text(
             "Output channels",
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
 
           const SizedBox(height: 5),
 
           const Text(
             "Switch each connected channel on or off.",
-            style: TextStyle(
-              color: _muted,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: _muted, fontSize: 12),
           ),
 
           const SizedBox(height: 14),
@@ -236,7 +227,7 @@ class PowerStatusPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _channelCard(
-                  title: "Channel 1",
+                  title: _channelName(0),
                   isOn: s.channel1,
                   onChanged: onToggleChannel == null
                       ? null
@@ -246,7 +237,7 @@ class PowerStatusPanel extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _channelCard(
-                  title: "Channel 2",
+                  title: _channelName(1),
                   isOn: s.channel2,
                   onChanged: onToggleChannel == null
                       ? null
@@ -254,6 +245,54 @@ class PowerStatusPanel extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          if (channelNames.length > 2) ...[
+            const SizedBox(height: 10),
+            ...channelNames
+                .skip(2)
+                .map(
+                  (name) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _displayOnlyChannelCard(name),
+                  ),
+                ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _channelName(int index) {
+    if (index >= channelNames.length || channelNames[index].trim().isEmpty) {
+      return "Channel ${index + 1}";
+    }
+    return channelNames[index];
+  }
+
+  Widget _displayOnlyChannelCard(String name) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.power_settings_new_rounded, size: 19, color: _muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const Text(
+            "Not connected",
+            style: TextStyle(color: _muted, fontSize: 11),
           ),
         ],
       ),
@@ -277,20 +316,13 @@ class PowerStatusPanel extends StatelessWidget {
               color: Colors.white.withOpacity(0.035),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(
-              icon,
-              size: 17,
-              color: _muted,
-            ),
+            child: Icon(icon, size: 17, color: _muted),
           ),
           const SizedBox(width: 11),
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: _muted,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: _muted, fontSize: 12),
             ),
           ),
           const SizedBox(width: 8),

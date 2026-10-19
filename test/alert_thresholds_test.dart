@@ -13,40 +13,20 @@ class _FakeRaiser implements AlertRaiser {
 Reading _reading({
   double voltage = 12.4,
   double batteryPercent = 80,
-  double temperature = 30,
-  bool hasTemperature = true,
 }) =>
     Reading(
       timestamp: 1760000000000,
       voltage: voltage,
       current: 2,
-      temperature: temperature,
       batteryPercent: batteryPercent,
       power: 25,
-      hasTemperature: hasTemperature,
     );
 
 void main() {
-  const settings = AppSettings.defaults; // 45 C, 20 %, 10.5 V
+  const settings = AppSettings.defaults; // 20 %, 10.5 V
 
   test("a healthy reading raises nothing", () {
     expect(evaluateThresholds(_reading(), settings), isEmpty);
-  });
-
-  test("high temperature raises a warning", () {
-    final out = evaluateThresholds(_reading(temperature: 50), settings);
-    expect(out.length, 1);
-    expect(out.first.level, "warning");
-    expect(out.first.title, "High Temperature");
-  });
-
-  test("exactly at the temperature limit does not alert", () {
-    expect(evaluateThresholds(_reading(temperature: 45), settings), isEmpty);
-  });
-
-  test("temperature is ignored when no sensor is fitted", () {
-    final out = evaluateThresholds(_reading(temperature: 99, hasTemperature: false), settings);
-    expect(out, isEmpty);
   });
 
   test("low battery percentage raises a warning", () {
@@ -62,17 +42,16 @@ void main() {
   });
 
   test("user-set limits are respected", () {
-    final custom = settings.copyWith(batteryLowPct: 50, tempLimitC: 30);
-    final titles = evaluateThresholds(_reading(batteryPercent: 40, temperature: 35), custom)
+    final custom = settings.copyWith(batteryLowPct: 50, lowVoltageV: 12.6);
+    final titles = evaluateThresholds(_reading(batteryPercent: 40), custom)
         .map((a) => a.title)
         .toList();
-    expect(titles, containsAll(["Low Battery", "High Temperature"]));
+    expect(titles, containsAll(["Low Battery", "Low Battery Voltage"]));
   });
 
   test("several breaches raise several alerts", () {
-    final out = evaluateThresholds(
-        _reading(temperature: 60, batteryPercent: 5, voltage: 9), settings);
-    expect(out.length, 3);
+    final out = evaluateThresholds(_reading(batteryPercent: 5, voltage: 9), settings);
+    expect(out.length, 2);
   });
 
   test("checkThresholds forwards every candidate to the raiser", () {

@@ -6,10 +6,8 @@ Reading _r(int ts, double power, {double? solar}) => Reading(
       timestamp: ts,
       voltage: 12,
       current: 1,
-      temperature: 0,
       batteryPercent: 50,
       power: power,
-      hasTemperature: false,
       solarPower: solar,
     );
 

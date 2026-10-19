@@ -2,7 +2,6 @@ export type Reading = {
   timestamp: number; // ms since epoch
   voltage: number;
   current: number;
-  temperature?: number; // missing when no temperature sensor is fitted
   batteryPercent: number;
   power: number;
 };
@@ -23,7 +22,6 @@ export type Alert = {
 };
 
 export type Settings = {
-  tempLimitC: number;
   batteryLowPct: number;
   readingIntervalSec: number;
   lowVoltageV?: number;

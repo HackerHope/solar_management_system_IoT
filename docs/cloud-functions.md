@@ -37,3 +37,6 @@ Check the region at the top of `functions/index.js` (`REGION`). It must match yo
 ## Unit tests
 
 `cd functions && npm test` runs the pure rule code (`alerts.js`, `energy.js`).
+
+## dailyInsights (AI Energy Advisor)
+Runs daily at 06:00 Africa/Lusaka. Reads the last 24 h of readings, hourly/daily energy, alerts and status of each system, builds an anonymous summary (no names, e-mails or IDs), asks Gemini for a short plain-language report and writes it to `systems/<id>/insights/latest`. Needs the secret `GEMINI_API_KEYS` (up to 6 keys, comma separated); each key is tried against every model in turn. See `docs/ai-insights.md`.

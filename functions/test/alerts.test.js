@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { evaluateReading, alertKey, shouldRaise, watchdogDecision, COOLDOWN_MS } = require("../alerts");
 
-const ok = { voltage: 12.4, batteryPercent: 80, temperature: 30 };
+const ok = { voltage: 12.4, batteryPercent: 80 };
 
 test("healthy reading raises nothing", () => {
   assert.deepEqual(evaluateReading(ok), []);
@@ -12,20 +12,12 @@ test("null reading raises nothing", () => {
   assert.deepEqual(evaluateReading(null), []);
 });
 
-test("high temperature -> warning", () => {
-  const out = evaluateReading({ ...ok, temperature: 50 });
-  assert.equal(out.length, 1);
-  assert.equal(out[0].level, "warning");
-  assert.equal(out[0].title, "High Temperature");
+test("exactly at the battery limit does not alert", () => {
+  assert.deepEqual(evaluateReading({ ...ok, batteryPercent: 20 }), []);
 });
 
-test("exactly at the limit does not alert", () => {
-  assert.deepEqual(evaluateReading({ ...ok, temperature: 45 }), []);
-});
-
-test("missing temperature (no sensor) never alerts", () => {
-  const { temperature, ...noTemp } = ok;
-  assert.deepEqual(evaluateReading(noTemp), []);
+test("a stray temperature field in an old record is ignored", () => {
+  assert.deepEqual(evaluateReading({ ...ok, temperature: 99 }), []);
 });
 
 test("low battery % -> warning, low voltage -> error", () => {
@@ -35,17 +27,17 @@ test("low battery % -> warning, low voltage -> error", () => {
 });
 
 test("user settings override defaults", () => {
-  const out = evaluateReading({ ...ok, batteryPercent: 40, temperature: 35 }, { batteryLowPct: 50, tempLimitC: 30 });
-  assert.deepEqual(out.map((a) => a.title).sort(), ["High Temperature", "Low Battery"]);
+  const out = evaluateReading({ ...ok, batteryPercent: 40 }, { batteryLowPct: 50 });
+  assert.deepEqual(out.map((a) => a.title), ["Low Battery"]);
 });
 
 test("non-numeric values are ignored safely", () => {
-  assert.deepEqual(evaluateReading({ voltage: "x", batteryPercent: null, temperature: undefined }), []);
+  assert.deepEqual(evaluateReading({ voltage: "x", batteryPercent: null }), []);
 });
 
 test("alertKey is a valid database key", () => {
-  const key = alertKey({ level: "warning", title: "High Temperature" });
-  assert.equal(key, "warning_High_Temperature");
+  const key = alertKey({ level: "warning", title: "Low Battery" });
+  assert.equal(key, "warning_Low_Battery");
   assert.ok(!/[.#$\[\]/]/.test(key));
 });
 

@@ -32,12 +32,6 @@ function SolarSystem() {
       status: online,
       icon: "🔋",
     },
-    temperature: {
-      name: "Temperature Sensor",
-      value: latest?.temperature != null ? `${latest.temperature.toFixed(0)}°C` : "No sensor",
-      status: online,
-      icon: "🌡️",
-    },
     // No physical load sensor yet - shown honestly rather than faked as Offline/Online
     load: {
       name: "Load Controller",
@@ -76,7 +70,6 @@ function SolarSystem() {
 
           <div className="network-row bottom-row">
             <DeviceCard device={devices.battery} />
-            <DeviceCard device={devices.temperature} />
             <DeviceCard device={devices.load} />
           </div>
         </div>

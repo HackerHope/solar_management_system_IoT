@@ -8,7 +8,6 @@ void main() {
         "timestamp": 1760000000000,
         "voltage": 12.4,
         "current": 3,
-        "temperature": 31,
         "batteryPercent": 78,
         "power": 37.2,
         "solarPower": 20,
@@ -16,8 +15,6 @@ void main() {
       expect(r.timestamp, 1760000000000);
       expect(r.voltage, 12.4);
       expect(r.current, 3.0);
-      expect(r.hasTemperature, isTrue);
-      expect(r.temperature, 31.0);
       expect(r.batteryPercent, 78.0);
       expect(r.solarPower, 20.0);
     });
@@ -29,21 +26,19 @@ void main() {
       expect(r.batteryPercent, 0);
       expect(r.solarPower, isNull);
     });
-
-    test("a record without temperature means no sensor", () {
-      final r = Reading.fromMap({"voltage": 12, "current": 1, "batteryPercent": 50});
-      expect(r.hasTemperature, isFalse);
-    });
   });
 
   group("AppSettings", () {
     test("null map gives defaults", () {
-      expect(AppSettings.fromMap(null).tempLimitC, AppSettings.defaults.tempLimitC);
+      expect(
+        AppSettings.fromMap(null).batteryLowPct,
+        AppSettings.defaults.batteryLowPct,
+      );
     });
 
     test("missing fields fall back to defaults", () {
-      final s = AppSettings.fromMap({"tempLimitC": 50});
-      expect(s.tempLimitC, 50);
+      final s = AppSettings.fromMap({"deviceName": "Home"});
+      expect(s.deviceName, "Home");
       expect(s.batteryLowPct, 20);
       expect(s.lowVoltageV, 10.5);
       expect(s.autoLoadControl, isFalse);
@@ -58,6 +53,7 @@ void main() {
         restoreAbovePct: 40,
         tariffZmwPerKwh: 1.5,
         mqttUseTls: true,
+        channelNames: ["Lighting", "Water pump", "Future output"],
       );
       final copy = AppSettings.fromMap(original.toMap());
       expect(copy.deviceName, "Home");
@@ -66,6 +62,14 @@ void main() {
       expect(copy.restoreAbovePct, 40);
       expect(copy.tariffZmwPerKwh, 1.5);
       expect(copy.mqttUseTls, isTrue);
+      expect(copy.channelNames, ["Lighting", "Water pump", "Future output"]);
+    });
+
+    test("preserves two physical channel names when stored list is short", () {
+      final settings = AppSettings.fromMap({
+        "channelNames": ["Lights"],
+      });
+      expect(settings.channelNames, ["Lights", "Channel 2"]);
     });
   });
 
@@ -95,6 +99,8 @@ void main() {
       expect(p.autoMode, isFalse);
       expect(p.autoShed, isFalse);
       expect(p.source, "grid");
+      expect(p.timestamp, isNull);
+      expect(p.mainsPresent, isFalse);
     });
   });
 
@@ -106,7 +112,10 @@ void main() {
   });
 
   test("DailyEnergy.fromMap", () {
-    final d = DailyEnergy.fromMap("2026-10-13", {"usedWh": 1500, "solarWh": 2200.5});
+    final d = DailyEnergy.fromMap("2026-10-13", {
+      "usedWh": 1500,
+      "solarWh": 2200.5,
+    });
     expect(d.date, "2026-10-13");
     expect(d.usedWh, 1500);
     expect(d.solarWh, 2200.5);

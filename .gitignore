@@ -48,5 +48,6 @@ app.*.map.json
 esp32-firmware/**/secrets.h
 frontend/.env
 frontend/.env.local
+functions/.secret.local
 .dart_tool/
 build/

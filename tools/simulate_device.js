@@ -11,7 +11,6 @@
 // Scenarios:
 //   normal       healthy values, updates every 5 s
 //   low-battery  battery drains from 40 % to below 15 %  (Low Battery / Low Battery Voltage alerts, auto load shed)
-//   overtemp     temperature climbs above 45 C            (High Temperature alert)
 //   fault        sets faultTripped = true once            (safety card shows TRIPPED)
 //   stop         sends 3 readings then stops              (Offline after the watchdog window)
 //
@@ -49,13 +48,11 @@ async function rtdb(method, path, body) {
 }
 
 function values(step) {
-  const v = { voltage: 12.6, current: 2.0, batteryPercent: 80, solarW: 30, temperature: undefined };
+  const v = { voltage: 12.6, current: 2.0, batteryPercent: 80, solarW: 30 };
   if (scenario === "low-battery") {
     v.batteryPercent = Math.max(8, 40 - step * 2);
     v.voltage = 11.6 - Math.min(2.5, step * 0.1);
     v.solarW = 0;
-  } else if (scenario === "overtemp") {
-    v.temperature = Math.min(60, 35 + step);
   }
   return v;
 }
@@ -67,11 +64,11 @@ async function tick(step) {
     voltage: v.voltage, current: v.current, batteryPercent: v.batteryPercent,
     power: +(v.voltage * v.current).toFixed(2), solarPower: v.solarW, timestamp: now,
   };
-  if (v.temperature !== undefined) reading.temperature = v.temperature;
   await rtdb("PUT", "readings/latest", reading);
   await rtdb("POST", "readings/history", reading);
   await rtdb("PUT", "system/lastSeen", now);
   await rtdb("PUT", "system/powerStatus", {
+    timestamp: now,
     solarVoltage: v.solarW > 0 ? 18.2 : 0, solarCurrent: +(v.solarW / 18.2).toFixed(2),
     source: scenario === "low-battery" ? "inverter" : "grid", mainsPresent: scenario !== "low-battery",
     faultTripped: scenario === "fault", channel1: false, channel2: false, autoMode: false, autoShed: false,

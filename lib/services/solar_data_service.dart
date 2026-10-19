@@ -1,5 +1,6 @@
 import "dart:async";
 import "package:firebase_database/firebase_database.dart";
+import "../models/ai_insight.dart";
 import "../models/sensor_models.dart";
 import "../config.dart";
 import "alert_thresholds.dart";
@@ -11,7 +12,6 @@ const _deviceNames = [
   "ESP32 Controller",
   "Battery Voltage Sensor",
   "Battery Current Sensor",
-  "Temperature Sensor",
   "Battery Monitor",
 ];
 
@@ -227,6 +227,19 @@ class SolarDataService implements AlertRaiser {
       final value = event.snapshot.value;
       if (value is num) return value.toInt();
       return null;
+    });
+  }
+
+  // ---- AI Energy Advisor (written daily by the dailyInsights Cloud Function) ----
+  // Read-only: the advisor only produces text and can never send a command to the device.
+
+  Stream<AiInsight?> insights() => _share("insights", _insights);
+
+  Stream<AiInsight?> _insights(DatabaseReference root) {
+    return root.child("insights/latest").onValue.map((event) {
+      final value = event.snapshot.value;
+      if (value == null) return null;
+      return AiInsight.fromMap(Map<dynamic, dynamic>.from(value as Map));
     });
   }
 

@@ -20,14 +20,6 @@ class AlertCandidate {
 List<AlertCandidate> evaluateThresholds(Reading reading, AppSettings settings) {
   final out = <AlertCandidate>[];
 
-  if (reading.hasTemperature && reading.temperature > settings.tempLimitC) {
-    out.add(AlertCandidate(
-      "warning",
-      "High Temperature",
-      "Temperature reached ${reading.temperature.toStringAsFixed(1)}°C "
-          "(limit ${settings.tempLimitC.toStringAsFixed(0)}°C)",
-    ));
-  }
   if (reading.batteryPercent < settings.batteryLowPct) {
     out.add(AlertCandidate(
       "warning",

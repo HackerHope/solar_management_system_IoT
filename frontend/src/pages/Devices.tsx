@@ -5,7 +5,6 @@ const ICONS: Record<string, string> = {
   "ESP32 Controller": "📡",
   "Battery Voltage Sensor": "🔌",
   "Battery Current Sensor": "⚡",
-  "Temperature Sensor": "🌡️",
   "Battery Monitor": "🔋",
 };
 
@@ -48,7 +47,7 @@ function Devices() {
         <p className="chart-subtitle" style={{ marginBottom: 0 }}>
           Breaking usage down by individual appliance (lights, fan, TV, fridge)
           needs a current sensor on each circuit. Right now this system measures
-          total system voltage, current, temperature and battery — add per-circuit
+          total system voltage, current and battery — add per-circuit
           sensors to unlock per-device numbers.
         </p>
       </div>
@@ -66,8 +65,6 @@ function readingValueFor(
       return `${latest.voltage.toFixed(1)} V`;
     case "Battery Current Sensor":
       return `${latest.current.toFixed(1)} A`;
-    case "Temperature Sensor":
-      return latest.temperature != null ? `${latest.temperature.toFixed(0)}°C` : "No sensor";
     case "Battery Monitor":
       return `${latest.batteryPercent.toFixed(0)}%`;
     default:
